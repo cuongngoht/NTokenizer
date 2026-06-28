@@ -217,4 +217,4 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-/vietnamese-llm-data/raw
+/raw
