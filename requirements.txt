@@ -1,4 +1,5 @@
 sentencepiece
+tqdm
 setuptools
 wheel
 wikiextractor @ git+https://github.com/attardi/wikiextractor.git@ab8988ebfa9e4557411f3d4c0f4ccda139e18875
