@@ -1,6 +1,7 @@
-# NTokenizer — Vietnamese SentencePiece BPE Tokenizer
+# NTokenizer — Tiny Vietnamese GPT
 
-Train a Vietnamese subword tokenizer from Vietnamese Wikipedia, as a first step toward training a small Vietnamese language model (Tiny GPT).
+Build a small Vietnamese language model from scratch:
+Wikipedia corpus → BPE tokenizer → binary dataset → GPT architecture → training → inference.
 
 ## Project structure
 
@@ -11,13 +12,21 @@ NTokenizer/
   clean/
     corpus.txt                # Cleaned plain-text corpus (ignored by git)
   tokenizer/
-    viwiki_bpe_8k.model       # Trained SentencePiece model
+    viwiki_bpe_8k.model       # Trained SentencePiece BPE model
     viwiki_bpe_8k.vocab       # Vocabulary file (token + log-prob score)
+  data/
+    train.bin                 # Encoded training tokens (uint16, ignored by git)
+    val.bin                   # Encoded validation tokens (uint16, ignored by git)
+    meta.json                 # Dataset metadata (vocab size, token counts)
   scripts/
     build_corpus.py           # Step 1 – extract + clean Wikipedia text
     train_tokenizer_spm.py    # Step 2 – train BPE tokenizer
     test_tokenizer.py         # Step 3 – verify encode/decode
     inspect_vocab.py          # Step 4 – explore the vocabulary
+    prepare_dataset.py        # Step 5 – encode corpus → train.bin / val.bin
+  src/
+    model.py                  # Step 6 – GPT model architecture (PyTorch)
+    train.py                  # Step 7 – training loop
   requirements.txt
 ```
 
@@ -67,6 +76,45 @@ python scripts/inspect_vocab.py
 Prints the first 100 tokens and searches for Vietnamese subwords such as
 `Việt`, `Hà`, `Nội`, `Nam`, `thủ`, `đô`.
 
+## Step 5 – Prepare binary dataset
+
+```bash
+python scripts/prepare_dataset.py
+```
+
+Encodes the full `clean/corpus.txt` with the trained BPE tokenizer and writes:
+- `data/train.bin` — 90 % of all tokens, stored as `uint16` (2 bytes per token)
+- `data/val.bin`   — remaining 10 %
+- `data/meta.json` — vocab size, token counts, tokenizer path
+
+Tokens are stored as raw `uint16` arrays with no headers.  Reload with:
+
+```python
+import numpy as np
+data = np.memmap("data/train.bin", dtype="uint16", mode="r")
+```
+
+## Step 6 – GPT model architecture
+
+```bash
+python src/model.py
+```
+
+Defines a decoder-only Transformer language model (~5 M parameters):
+
+| Hyperparameter | Value |
+|---|---|
+| `vocab_size` | 8 000 |
+| `block_size` | 256 tokens |
+| `n_layer` | 4 |
+| `n_head` | 4 |
+| `n_embd` | 256 |
+| `dropout` | 0.1 |
+
+Running the file directly executes a sanity check: forward pass, loss
+verification (expected ≈ `ln(8000) ≈ 8.99` for random weights), and
+a 20-token generation sample.
+
 ---
 
 ## Design decisions
@@ -94,28 +142,33 @@ strips diacritics would produce a model that cannot distinguish these words.
 
 ---
 
-## Next step — tokenize for Tiny GPT
+## Step 7 – Train the model
 
-Once the tokenizer is trained, encode the full corpus into integer arrays and
-split into `train.bin` / `val.bin`:
-
-```python
-import numpy as np
-import sentencepiece as spm
-
-sp = spm.SentencePieceProcessor()
-sp.load("tokenizer/viwiki_bpe_8k.model")
-
-ids = []
-with open("clean/corpus.txt") as f:
-    for line in f:
-        ids.extend(sp.encode(line.strip()))
-
-ids = np.array(ids, dtype=np.uint16)
-n = int(len(ids) * 0.9)
-ids[:n].tofile("data/train.bin")
-ids[n:].tofile("data/val.bin")
+```bash
+python src/train.py
+# override defaults
+python src/train.py --max_iters 5000 --batch_size 32 --device mps
 ```
 
-The resulting `.bin` files can be fed directly into a nanoGPT-style training
-loop using `np.frombuffer(open("data/train.bin","rb").read(), dtype=np.uint16)`.
+Trains the GPT model on `data/train.bin`, evaluates on `data/val.bin` every
+500 steps, and saves the best checkpoint to `out/ckpt.pt`.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `max_iters` | 5 000 | increase for better quality |
+| `batch_size` | 32 | reduce if GPU OOM |
+| `learning_rate` | 3e-4 | cosine decay to 3e-5 |
+| `warmup_iters` | 100 | linear LR ramp-up |
+| `block_size` | 256 | tokens per sequence |
+| `grad_clip` | 1.0 | gradient norm clipping |
+
+Expected loss progression (random init → trained):
+- Step 0 (random weights): ~9.0 ≈ ln(8 000)
+- Step 1 000: ~4–5
+- Step 5 000: ~3–4
+
+Training is resumable — re-run the same command to continue from `out/ckpt.pt`.
+
+## Next step — inference
+
+With a checkpoint in `out/ckpt.pt`, run `src/sample.py` to generate text.
