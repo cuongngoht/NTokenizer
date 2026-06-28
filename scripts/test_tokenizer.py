@@ -1,11 +1,12 @@
 """
 Test the trained Vietnamese SentencePiece BPE tokenizer.
 
-Loads tokenizer/viwiki_bpe_8k.model and runs encode/decode on
-sample Vietnamese sentences, printing pieces, IDs, decoded text,
-token count, and round-trip match status.
+Loads a SentencePiece model and runs encode/decode on sample Vietnamese
+sentences, printing pieces, IDs, decoded text, token count, and round-trip
+match status.
 """
 
+import argparse
 import re
 import sys
 from pathlib import Path
@@ -13,7 +14,6 @@ from pathlib import Path
 import sentencepiece as spm
 
 ROOT = Path(__file__).parent.parent
-MODEL_PATH = ROOT / "tokenizer" / "viwiki_bpe_8k.model"
 
 TEST_SENTENCES = [
     "Hà Nội là thủ đô của Việt Nam.",
@@ -55,6 +55,14 @@ def test_sentence(sp: spm.SentencePieceProcessor, sentence: str) -> bool:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Test Vietnamese SentencePiece tokenizer")
+    parser.add_argument("--model", type=str,
+                        default=str(ROOT / "tokenizer" / "viwiki_bpe_32k.model"),
+                        help="Path to .model file (default: tokenizer/viwiki_bpe_32k.model)")
+    args = parser.parse_args()
+
+    MODEL_PATH = Path(args.model)
+
     if not MODEL_PATH.exists():
         print(f"ERROR: model not found: {MODEL_PATH}", file=sys.stderr)
         print("Run scripts/train_tokenizer_spm.py first.", file=sys.stderr)

@@ -50,8 +50,10 @@ NTokenizer/
 │   └── corpus.txt                              # Cleaned plain text (gitignored, ~1.3 GB)
 │
 ├── tokenizer/
-│   ├── viwiki_bpe_8k.model                     # Trained SentencePiece model
-│   └── viwiki_bpe_8k.vocab                     # Vocabulary: token + log-prob score
+│   ├── viwiki_bpe_32k.model                    # Trained SentencePiece model (default)
+│   ├── viwiki_bpe_32k.vocab                    # Vocabulary: token + log-prob score
+│   ├── viwiki_bpe_8k.model                     # Legacy 8k model (kept for reference)
+│   └── viwiki_bpe_8k.vocab
 │
 ├── data/
 │   ├── train.bin                               # 90% of tokens as uint16 (gitignored)
@@ -162,7 +164,16 @@ wikiextractor raw/viwiki-latest-pages-articles.xml.bz2 \
 ## Step 2 — Train BPE tokenizer
 
 ```bash
-python scripts/train_tokenizer_spm.py
+# Train 32k tokenizer (default / recommended)
+python scripts/train_tokenizer_spm.py --vocab_size 32000
+
+# Train 8k tokenizer (smaller, faster)
+python scripts/train_tokenizer_spm.py --vocab_size 8000
+
+# Custom corpus or output directory
+python scripts/train_tokenizer_spm.py --vocab_size 32000 \
+    --input clean/corpus.txt \
+    --output_dir tokenizer/
 ```
 
 **What it does**
@@ -174,18 +185,18 @@ Training parameters:
 
 | Parameter | Value | Why |
 |---|---|---|
-| `vocab_size` | 8 000 | Covers ~7 000 Vietnamese syllables with room for subwords |
+| `vocab_size` | 32 000 | Good coverage of Vietnamese syllables + subwords + multilingual tokens |
 | `model_type` | `bpe` | Iterative merge — good balance for Vietnamese morphology |
 | `character_coverage` | 0.9995 | Keeps rare characters as byte-level fallbacks |
 | Special tokens | `<unk>` `<pad>` `<bos>` `<eos>` | Required by the training pipeline |
 
-Takes 5–10 minutes on a modern laptop.
+Takes 10–20 minutes on a modern laptop for 32k vocab.
 
 **Output**
 
 ```
-tokenizer/viwiki_bpe_8k.model   ~360 KB   binary SentencePiece model
-tokenizer/viwiki_bpe_8k.vocab   ~100 KB   TSV: token + log-probability
+tokenizer/viwiki_bpe_32k.model   ~1.2 MB   binary SentencePiece model
+tokenizer/viwiki_bpe_32k.vocab   ~400 KB   TSV: token + log-probability
 ```
 
 ---
@@ -193,7 +204,12 @@ tokenizer/viwiki_bpe_8k.vocab   ~100 KB   TSV: token + log-probability
 ## Step 3 — Test tokenizer
 
 ```bash
+# Test the 32k tokenizer (default)
 python scripts/test_tokenizer.py
+
+# Test a specific model
+python scripts/test_tokenizer.py --model tokenizer/viwiki_bpe_32k.model
+python scripts/test_tokenizer.py --model tokenizer/viwiki_bpe_8k.model
 ```
 
 Encodes 5 sample Vietnamese sentences, decodes them back, and verifies that
@@ -214,7 +230,12 @@ Match  : ✓
 ## Step 4 — Inspect vocabulary
 
 ```bash
+# Inspect the 32k vocab (default)
 python scripts/inspect_vocab.py
+
+# Inspect a specific vocab file
+python scripts/inspect_vocab.py --vocab tokenizer/viwiki_bpe_32k.vocab
+python scripts/inspect_vocab.py --vocab tokenizer/viwiki_bpe_8k.vocab
 ```
 
 Prints the first 100 tokens (special tokens + most frequent subwords) and
@@ -229,7 +250,12 @@ tokens rather than being split into byte-level fragments.
 ## Step 5 — Prepare binary dataset
 
 ```bash
+# Encode with the 32k tokenizer (default)
 python scripts/prepare_dataset.py
+
+# Encode with a specific model
+python scripts/prepare_dataset.py --model tokenizer/viwiki_bpe_32k.model
+python scripts/prepare_dataset.py --model tokenizer/viwiki_bpe_8k.model
 ```
 
 **What it does**
@@ -258,12 +284,12 @@ data/meta.json    metadata
 
 ```json
 {
-  "vocab_size": 8000,
+  "vocab_size": 32000,
   "dtype": "uint16",
   "total_tokens": 180000000,
   "train_tokens": 162000000,
   "val_tokens":   18000000,
-  "tokenizer": "tokenizer/viwiki_bpe_8k.model"
+  "tokenizer": "tokenizer/viwiki_bpe_32k.model"
 }
 ```
 
@@ -310,13 +336,13 @@ input_ids  [B, T]
 
 | Parameter | Value | Description |
 |---|---|---|
-| `vocab_size` | 8 000 | Matches the BPE tokenizer |
+| `vocab_size` | 32 000 | Matches the BPE tokenizer |
 | `block_size` | 256 | Maximum context length in tokens |
 | `n_layer` | 4 | Number of Transformer blocks |
 | `n_head` | 4 | Attention heads per block |
 | `n_embd` | 256 | Embedding / model dimension |
 | `dropout` | 0.1 | Dropout probability (0 at inference) |
-| Total params | ~5.3 M | Fits comfortably on CPU or laptop GPU |
+| Total params | ~8.5 M | Fits comfortably on CPU or laptop GPU |
 
 **Key implementation details**
 
@@ -332,14 +358,14 @@ input_ids  [B, T]
 **Sanity check output**
 
 ```
-Parameters     : 5,273,088
-logits shape   : [2, 64, 8000]
-loss           : ~9.05  (expected ≈ ln(8000) = 8.99 for random weights)
-generated IDs  : [0, 3421, 7102, ...]   shape [1, 21]
+Parameters     : 8,519,680
+logits shape   : [2, 64, 32000]
+loss           : ~10.37  (expected ≈ ln(32000) = 10.37 for random weights)
+generated IDs  : [0, 12341, 27102, ...]   shape [1, 21]
 ```
 
-A freshly initialised model predicts roughly uniformly over all 8 000 tokens,
-so the loss starts near `ln(8000) ≈ 8.99`.  Training drives it down.
+A freshly initialised model predicts roughly uniformly over all 32 000 tokens,
+so the loss starts near `ln(32000) ≈ 10.37`.  Training drives it down.
 
 ---
 
@@ -391,7 +417,7 @@ python src/train.py
 
 | Steps | Train loss | Val loss | Notes |
 |---|---|---|---|
-| 0 | ~9.0 | ~9.0 | Random weights — uniform over vocab |
+| 0 | ~10.4 | ~10.4 | Random weights — uniform over vocab |
 | 500 | ~5–6 | ~5–6 | Model starts picking up common words |
 | 1 000 | ~4–5 | ~4–5 | Vietnamese patterns emerging |
 | 5 000 | ~3–4 | ~3–4 | Coherent subword sequences |
@@ -452,7 +478,7 @@ python src/sample.py --prompt "Ngôn ngữ" --temperature 0.5 --top_k 20
 
 **Understanding temperature and top-k**
 
-The model outputs a probability distribution over all 8 000 tokens.
+The model outputs a probability distribution over all 32 000 tokens.
 Two settings control how you sample from it:
 
 - **temperature** divides the logits before softmax.
@@ -483,12 +509,18 @@ frequent adjacent byte-pairs.  For Vietnamese it strikes a good balance:
 
 BPE is the algorithm behind GPT-2, RoBERTa, LLaMA, and most modern LLMs.
 
-### Why vocab_size = 8 000?
+### Why vocab_size = 32 000?
 
-Vietnamese is a tonal, monosyllabic language with ~7 000 distinct syllables in
-everyday use.  A vocabulary of 8 000 gives near-complete syllable coverage
-while keeping the embedding matrix small enough for a tiny model.  Larger
-vocabularies (GPT-2 uses 50 257; BERT uses 30 000) would be wasteful here.
+32 000 tokens aligns with common multilingual tokenizers (mBERT uses 30 000,
+LLaMA uses 32 000) and gives Vietnamese much better coverage:
+
+- ~7 000 distinct Vietnamese syllables as single tokens.
+- Thousands of common multi-syllable words and phrases as merged tokens.
+- Room for digits, punctuation, code, and foreign words without byte-level
+  fragmentation.
+- Embedding matrix size stays manageable (~8 M parameters vs ~5 M for 8k).
+
+Use `--vocab_size 8000` if you need a smaller, faster model for experimentation.
 
 ### Why preserve Vietnamese diacritics?
 
@@ -538,7 +570,7 @@ clean/corpus.txt        ← ~1.3 GB plain text, 1 paragraph per line
         ├──▶  scripts/train_tokenizer_spm.py
         │             │
         │             ▼
-        │     tokenizer/viwiki_bpe_8k.model   ← maps text ↔ integer IDs
+        │     tokenizer/viwiki_bpe_32k.model  ← maps text ↔ integer IDs
         │
         ▼  scripts/prepare_dataset.py
 data/train.bin          ← flat array of uint16 token IDs (90 %)
@@ -602,9 +634,9 @@ pip install -r requirements.txt
 python scripts/build_corpus.py
 ```
 
-**`ERROR: file not found: tokenizer/viwiki_bpe_8k.model`**
+**`ERROR: file not found: tokenizer/viwiki_bpe_32k.model`**
 ```bash
-python scripts/train_tokenizer_spm.py
+python scripts/train_tokenizer_spm.py --vocab_size 32000
 ```
 
 **`ERROR: file not found: data/train.bin`**

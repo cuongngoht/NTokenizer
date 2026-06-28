@@ -1,16 +1,16 @@
 """
 Inspect the vocabulary of the trained Vietnamese SentencePiece tokenizer.
 
-Reads tokenizer/viwiki_bpe_8k.vocab (TSV: token<TAB>score) and:
+Reads a tokenizer .vocab file (TSV: token<TAB>score) and:
   - Prints the first 100 tokens (IDs 0–99)
   - Searches for tokens containing specific Vietnamese substrings
 """
 
+import argparse
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
-VOCAB_PATH = ROOT / "tokenizer" / "viwiki_bpe_8k.vocab"
 
 SEARCH_TERMS = ["Hà", "Nội", "Việt", "Nam", "thủ", "đô", "Có"]
 
@@ -54,6 +54,14 @@ def search_vocab(tokens: list[tuple[str, float]], terms: list[str]) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Inspect Vietnamese SentencePiece vocabulary")
+    parser.add_argument("--vocab", type=str,
+                        default=str(ROOT / "tokenizer" / "viwiki_bpe_32k.vocab"),
+                        help="Path to .vocab file (default: tokenizer/viwiki_bpe_32k.vocab)")
+    args = parser.parse_args()
+
+    VOCAB_PATH = Path(args.vocab)
+
     if not VOCAB_PATH.exists():
         print(f"ERROR: vocab file not found: {VOCAB_PATH}", file=sys.stderr)
         print("Run scripts/train_tokenizer_spm.py first.", file=sys.stderr)
@@ -62,7 +70,7 @@ def main() -> None:
     tokens = load_vocab(VOCAB_PATH)
 
     print("=" * 55)
-    print(f"  Vocab file : {VOCAB_PATH.name}")
+    print(f"  Vocab file  : {VOCAB_PATH.name}")
     print(f"  Total tokens: {len(tokens)}")
     print("=" * 55)
     print()

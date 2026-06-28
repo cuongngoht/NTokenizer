@@ -1,8 +1,8 @@
 """
 Generate Vietnamese text from a trained Tiny GPT checkpoint.
 
-Input : out/ckpt.pt                   (trained model, from src/train.py)
-        tokenizer/viwiki_bpe_8k.model (SentencePiece BPE tokenizer)
+Input : out/ckpt.pt                    (trained model, from src/train.py)
+        tokenizer/viwiki_bpe_32k.model (SentencePiece BPE tokenizer)
 
 Usage:
     python src/sample.py
@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import sentencepiece as spm
 
-from model import GPT, GPTConfig
+from Users.cuongn.NTokenizer.src.model import GPT, GPTConfig
 
 
 # ---------------------------------------------------------------------------
@@ -36,7 +36,7 @@ def load_model(ckpt_path: Path, device: torch.device) -> tuple[GPT, dict]:
 
     cfg_dict  = ckpt["config"]
     model_cfg = GPTConfig(
-        vocab_size = cfg_dict.get("vocab_size", 8000),  # may not be in older ckpts
+        vocab_size = cfg_dict.get("vocab_size", 32000),  # may not be in older ckpts
         block_size = cfg_dict["block_size"],
         n_layer    = cfg_dict["n_layer"],
         n_head     = cfg_dict["n_head"],
@@ -78,7 +78,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Sample from Tiny Vietnamese GPT")
     parser.add_argument("--ckpt",           type=str,   default=str(ROOT / "out" / "ckpt.pt"),
                         help="Path to checkpoint file")
-    parser.add_argument("--tokenizer",      type=str,   default=str(ROOT / "tokenizer" / "viwiki_bpe_8k.model"),
+    parser.add_argument("--tokenizer",      type=str,   default=str(ROOT / "tokenizer" / "viwiki_bpe_32k.model"),
                         help="Path to SentencePiece model")
     parser.add_argument("--prompt",         type=str,   default="",
                         help="Seed text (empty = start from BOS token)")

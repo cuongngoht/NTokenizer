@@ -41,7 +41,7 @@ import torch.nn.functional as F
 @dataclass
 class GPTConfig:
     """All hyperparameters in one place.  Change here → affects the whole model."""
-    vocab_size: int = 8000   # number of tokens in the tokenizer vocabulary
+    vocab_size: int = 32000  # number of tokens in the tokenizer vocabulary
     block_size: int = 256    # maximum context length (sequence length)
     n_layer:    int = 4      # number of Transformer blocks stacked
     n_head:     int = 4      # number of attention heads per block
@@ -386,12 +386,12 @@ if __name__ == "__main__":
 
     # Build model with default (small) config
     config = GPTConfig(
-        vocab_size = 8000,
-        block_size = 256,
-        n_layer    = 4,
-        n_head     = 4,
-        n_embd     = 256,
-        dropout    = 0.0,   # disable dropout for deterministic test
+        vocab_size = 32000,
+        block_size = 1024,
+        n_layer    = 8,
+        n_head     = 8,
+        n_embd     = 512,
+        dropout    = 0.1,
         bias       = True,
     )
     model = GPT(config)

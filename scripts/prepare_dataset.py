@@ -1,11 +1,11 @@
 """
 Encode the clean corpus into token IDs and save as binary training data.
 
-Input : clean/corpus.txt              (one paragraph per line, UTF-8)
-         tokenizer/viwiki_bpe_8k.model (SentencePiece BPE model, vocab=8000)
-Output: data/train.bin                (90% of tokens, numpy uint16)
-        data/val.bin                  (10% of tokens, numpy uint16)
-        data/meta.json                (vocab size, token counts, paths)
+Input : clean/corpus.txt               (one paragraph per line, UTF-8)
+         tokenizer/viwiki_bpe_32k.model (SentencePiece BPE model)
+Output: data/train.bin                 (90% of tokens, numpy uint16)
+        data/val.bin                   (10% of tokens, numpy uint16)
+        data/meta.json                 (vocab size, token counts, paths)
 
 How the binary format works
 ---------------------------
@@ -16,6 +16,7 @@ There are no separators between lines — the EOS token serves as the
 sentence boundary if the tokenizer supports it.
 """
 
+import argparse
 import json
 import sys
 import time
@@ -30,7 +31,6 @@ import sentencepiece as spm
 
 ROOT = Path(__file__).parent.parent
 CORPUS = ROOT / "clean" / "corpus.txt"
-MODEL = ROOT / "tokenizer" / "viwiki_bpe_8k.model"
 OUT_DIR = ROOT / "data"
 
 # 90% train, 10% validation — standard split for language model pre-training
@@ -230,6 +230,14 @@ def verify_output(out_dir: Path, sp) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Encode corpus into binary training data")
+    parser.add_argument("--model", type=str,
+                        default=str(ROOT / "tokenizer" / "viwiki_bpe_32k.model"),
+                        help="Path to SentencePiece .model file (default: tokenizer/viwiki_bpe_32k.model)")
+    args = parser.parse_args()
+
+    MODEL = Path(args.model)
+
     # ------------------------------------------------------------------
     # Guard: both input files must exist before we start
     # ------------------------------------------------------------------
