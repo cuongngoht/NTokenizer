@@ -33,28 +33,12 @@ Notation:
 """
 
 import math
-from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
-@dataclass
-class GPTConfig:
-    """All hyperparameters in one place."""
-    vocab_size: int   = 32000
-    block_size: int   = 256
-    n_layer:    int   = 4
-    n_head:     int   = 4
-    n_kv_head:  int   = 4       # GQA: n_head must be divisible by n_kv_head
-    n_embd:     int   = 256
-    dropout:    float = 0.1
-    rope_theta: float = 10000.0  # RoPE base frequency
+from ntokenizer.config import GPTConfig
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +101,31 @@ def apply_rotary_emb(
         return out.type_as(x)
 
     return rotate(q), rotate(k)
+
+
+# ---------------------------------------------------------------------------
+# Repetition penalty (used by GPT.generate)
+# ---------------------------------------------------------------------------
+
+def apply_repetition_penalty(
+    logits: torch.Tensor,  # [B, vocab_size]
+    idx:    torch.Tensor,  # [B, T_so_far]
+    penalty: float,
+) -> torch.Tensor:
+    """
+    Down-weight the logits of tokens already present in idx, discouraging
+    the model from repeating itself. penalty > 1.0 strengthens the effect;
+    1.0 is a no-op.
+    """
+    score = logits.gather(1, idx)   # [B, T_so_far]
+    score = torch.where(
+        score < 0,
+        score * penalty,
+        score / penalty,
+    )
+    logits = logits.clone()
+    logits.scatter_(1, idx, score)
+    return logits
 
 
 # ---------------------------------------------------------------------------
@@ -415,15 +424,8 @@ class GPT(nn.Module):
             logits, _, past_kvs = self(idx_cond, past_kvs=past_kvs)
             logits = logits[:, -1, :]   # [B, vocab_size]
 
-            # Repetition penalty: down-weight tokens already in the context
             if repetition_penalty != 1.0:
-                score = logits.gather(1, idx)   # [B, T_so_far]
-                score = torch.where(
-                    score < 0,
-                    score * repetition_penalty,
-                    score / repetition_penalty,
-                )
-                logits.scatter_(1, idx, score)
+                logits = apply_repetition_penalty(logits, idx, repetition_penalty)
 
             logits = logits / temperature
 
@@ -450,56 +452,3 @@ class GPT(nn.Module):
     def count_parameters(self) -> int:
         """Total number of trainable parameters."""
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
-
-
-# ---------------------------------------------------------------------------
-# Quick sanity check
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    print("=" * 60)
-    print("  Vietnamese GPT v2 — Architecture Sanity Check")
-    print("=" * 60)
-
-    config = GPTConfig(
-        vocab_size = 32000,
-        block_size = 512,
-        n_layer    = 8,
-        n_head     = 8,
-        n_kv_head  = 2,   # GQA: 4 Q heads share 1 KV head (ratio 4:1)
-        n_embd     = 512,
-        dropout    = 0.0,
-    )
-    model = GPT(config)
-    print(f"\n  Config     : {config}")
-    print(f"  Parameters : {model.count_parameters():,}")
-
-    device = (
-        "mps"  if torch.backends.mps.is_available() else
-        "cuda" if torch.cuda.is_available()          else
-        "cpu"
-    )
-    model = model.to(device)
-    print(f"  Device     : {device}")
-
-    B, T = 2, 64
-    ids     = torch.randint(0, config.vocab_size, (B, T), device=device)
-    targets = torch.randint(0, config.vocab_size, (B, T), device=device)
-
-    print("\n[1] Forward pass (training)")
-    logits, loss, kvs = model(ids, targets)
-    expected_loss = math.log(config.vocab_size)
-    print(f"  logits : {list(logits.shape)}")
-    print(f"  loss   : {loss.item():.4f}  (expected ≈ {expected_loss:.4f} = ln({config.vocab_size}))")
-    print(f"  KV cache layers : {len(kvs)}  shapes : K{list(kvs[0][0].shape)} V{list(kvs[0][1].shape)}")
-
-    print("\n[2] Generation with KV cache (30 tokens)")
-    seed = torch.zeros((1, 1), dtype=torch.long, device=device)
-    model.eval()
-    out = model.generate(seed, max_new_tokens=30, temperature=0.8, top_k=50, top_p=0.9)
-    print(f"  output shape : {list(out.shape)}")
-    print(f"  token IDs    : {out[0].tolist()}")
-
-    print("\n" + "=" * 60)
-    print("  All checks passed.")
-    print("=" * 60)

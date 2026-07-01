@@ -1,191 +1,26 @@
 """
 Training loop for Tiny Vietnamese GPT.
 
-Input : data/train.bin   (uint16 token IDs, from scripts/prepare_dataset.py)
-        data/val.bin     (uint16 token IDs)
-        data/meta.json   (vocab_size, etc.)
-Output: out/ckpt.pt      (best checkpoint by val loss)
-
-Usage:
-    python src/train.py
-    python src/train.py --max_iters 5000 --batch_size 32
-    python src/train.py --device cpu
+Input : data/processed/train.bin   (uint16 token IDs, from ntokenizer.dataset)
+        data/processed/val.bin
+        data/processed/meta.json   (vocab_size, etc.)
+Output: artifacts/checkpoints/ckpt.pt   (best checkpoint by val loss)
 """
 
-import argparse
 import json
-import math
 import sys
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
 
-import numpy as np
 import torch
 import torch.nn as nn
 
-# src/ is the package root; add project root so we can import model.py
-ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(Path(__file__).parent))
-
-from model import GPT, GPTConfig
-
-
-# ---------------------------------------------------------------------------
-# Training configuration
-# ---------------------------------------------------------------------------
-
-@dataclass
-class TrainConfig:
-    # ── Paths ────────────────────────────────────────────────────────────
-    data_dir:            str   = str(ROOT / "data")
-    out_dir:             str   = str(ROOT / "out")
-
-    # ── Model (must match GPTConfig defaults) ────────────────────────────
-    block_size:          int   = 256
-    n_layer:             int   = 4
-    n_head:              int   = 4
-    n_kv_head:           int   = 4      # GQA: must divide n_head evenly
-    n_embd:              int   = 256
-    dropout:             float = 0.1
-    rope_theta:          float = 10000.0
-
-    # ── Optimization ─────────────────────────────────────────────────────
-    batch_size:          int   = 32
-    max_iters:           int   = 5000
-    learning_rate:       float = 3e-4    # peak LR
-    min_lr:              float = 3e-5    # floor (1/10 of peak)
-    warmup_iters:        int   = 100     # steps of linear LR warm-up
-    weight_decay:        float = 0.1
-    grad_clip:           float = 1.0     # max gradient norm (0 = disabled)
-
-    # ── Logging & checkpointing ───────────────────────────────────────────
-    eval_interval:       int   = 500     # evaluate every N steps
-    eval_iters:          int   = 100     # batches to average for eval loss
-    log_interval:        int   = 50      # print train loss every N steps
-    checkpoint_interval: int   = 1000    # save checkpoint every N steps
-
-    # ── Device (empty = auto-detect) ─────────────────────────────────────
-    device:              str   = ""
-
-
-# ---------------------------------------------------------------------------
-# Data loading
-# ---------------------------------------------------------------------------
-
-def load_data(data_dir: Path) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Memory-map train.bin and val.bin.
-
-    np.memmap reads directly from disk without loading the whole file into RAM.
-    For a ~1 GB train.bin this is critical on a MacBook with limited RAM.
-    """
-    train_data = np.memmap(data_dir / "train.bin", dtype=np.uint16, mode="r")
-    val_data   = np.memmap(data_dir / "val.bin",   dtype=np.uint16, mode="r")
-    return train_data, val_data
-
-
-def get_batch(
-    data:       np.ndarray,
-    block_size: int,
-    batch_size: int,
-    device:     torch.device,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    Sample a random batch of (input, target) pairs from a token array.
-
-    For language modelling the target is the input shifted by 1:
-      input  = tokens[i   : i + block_size]
-      target = tokens[i+1 : i + block_size + 1]
-
-    At each position t the model predicts token t+1 given tokens 0..t.
-    This gives block_size training examples per sequence in the batch.
-    """
-    ix = torch.randint(len(data) - block_size, (batch_size,))
-    x = torch.stack([
-        torch.from_numpy(data[i     : i + block_size].astype(np.int64))
-        for i in ix
-    ])
-    y = torch.stack([
-        torch.from_numpy(data[i + 1 : i + block_size + 1].astype(np.int64))
-        for i in ix
-    ])
-    return x.to(device), y.to(device)
-
-
-# ---------------------------------------------------------------------------
-# Learning rate schedule: linear warm-up → cosine decay
-# ---------------------------------------------------------------------------
-
-def get_lr(step: int, cfg: TrainConfig) -> float:
-    """
-    Return the learning rate for the current step.
-
-    Phase 1 (0 → warmup_iters):   linear ramp from 0 to learning_rate.
-    Phase 2 (warmup → max_iters): cosine decay from learning_rate to min_lr.
-    Phase 3 (> max_iters):        constant min_lr.
-
-    Why cosine decay?  It smoothly reduces the step size as training converges,
-    letting the optimizer fine-tune rather than overshoot the minimum.
-    """
-    # Linear warm-up
-    if step < cfg.warmup_iters:
-        return cfg.learning_rate * step / cfg.warmup_iters
-
-    # After training ends
-    if step > cfg.max_iters:
-        return cfg.min_lr
-
-    # Cosine decay
-    progress = (step - cfg.warmup_iters) / (cfg.max_iters - cfg.warmup_iters)
-    coeff = 0.5 * (1.0 + math.cos(math.pi * progress))   # 1.0 → 0.0
-    return cfg.min_lr + coeff * (cfg.learning_rate - cfg.min_lr)
-
-
-# ---------------------------------------------------------------------------
-# Optimizer
-# ---------------------------------------------------------------------------
-
-def configure_optimizer(
-    model:         GPT,
-    weight_decay:  float,
-    learning_rate: float,
-    device:        torch.device,
-) -> torch.optim.AdamW:
-    """
-    AdamW with weight decay applied only to weight matrices, not to biases
-    or LayerNorm parameters (they are 1-D tensors).
-
-    Why separate groups?  Weight decay is a regularizer that shrinks weights
-    toward zero.  Applying it to biases or layer-norm scales is usually
-    harmful because those parameters work best near their learned value, not
-    near zero.
-    """
-    decay, no_decay = [], []
-    for name, param in model.named_parameters():
-        if not param.requires_grad:
-            continue
-        if param.dim() >= 2:
-            decay.append(param)       # weight matrices — apply decay
-        else:
-            no_decay.append(param)    # biases, LayerNorm — no decay
-
-    n_decay    = sum(p.numel() for p in decay)
-    n_no_decay = sum(p.numel() for p in no_decay)
-    print(f"  Optimizer      : AdamW  "
-          f"(decay={n_decay:,} params, no-decay={n_no_decay:,} params)")
-
-    # fused=True uses a CUDA-optimized kernel; not available on MPS/CPU
-    use_fused = device.type == "cuda"
-    return torch.optim.AdamW(
-        [
-            {"params": decay,    "weight_decay": weight_decay},
-            {"params": no_decay, "weight_decay": 0.0},
-        ],
-        lr=learning_rate,
-        betas=(0.9, 0.95),
-        fused=use_fused,
-    )
+from ntokenizer.config import GPTConfig, TrainConfig
+from ntokenizer.dataset import get_batch, load_data
+from ntokenizer.device import auto_device
+from ntokenizer.model import GPT
+from ntokenizer.optim import configure_optimizer, get_lr
 
 
 # ---------------------------------------------------------------------------
@@ -195,8 +30,8 @@ def configure_optimizer(
 @torch.no_grad()
 def estimate_loss(
     model:      GPT,
-    train_data: np.ndarray,
-    val_data:   np.ndarray,
+    train_data,
+    val_data,
     cfg:        TrainConfig,
     device:     torch.device,
 ) -> dict[str, float]:
@@ -283,14 +118,7 @@ def train(cfg: TrainConfig) -> None:
     # ------------------------------------------------------------------
     # Device
     # ------------------------------------------------------------------
-    if cfg.device:
-        device = torch.device(cfg.device)
-    else:
-        device = torch.device(
-            "mps"  if torch.backends.mps.is_available() else
-            "cuda" if torch.cuda.is_available()          else
-            "cpu"
-        )
+    device = auto_device(cfg.device)
 
     # Seed for reproducibility
     torch.manual_seed(42)
@@ -437,42 +265,5 @@ def train(cfg: TrainConfig) -> None:
     print(f"  Best val loss  : {best_val_loss:.4f}")
     print(f"  Checkpoint     : {out_dir / 'ckpt.pt'}")
     print()
-    print("  Next: python src/sample.py")
+    print("  Next: python scripts/sample.py")
     print("=" * 55)
-
-
-# ---------------------------------------------------------------------------
-# CLI entry point
-# ---------------------------------------------------------------------------
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Train Tiny Vietnamese GPT")
-    parser.add_argument("--max_iters",       type=int,   default=5000)
-    parser.add_argument("--batch_size",      type=int,   default=32)
-    parser.add_argument("--learning_rate",   type=float, default=3e-4)
-    parser.add_argument("--min_lr",          type=float, default=3e-5)
-    parser.add_argument("--warmup_iters",    type=int,   default=100)
-    parser.add_argument("--weight_decay",    type=float, default=0.1)
-    parser.add_argument("--grad_clip",       type=float, default=1.0)
-    parser.add_argument("--n_layer",         type=int,   default=4)
-    parser.add_argument("--n_head",          type=int,   default=4)
-    parser.add_argument("--n_kv_head",       type=int,   default=4)
-    parser.add_argument("--n_embd",          type=int,   default=256)
-    parser.add_argument("--block_size",      type=int,   default=256)
-    parser.add_argument("--rope_theta",      type=float, default=10000.0)
-    parser.add_argument("--eval_interval",   type=int,   default=500)
-    parser.add_argument("--eval_iters",      type=int,   default=100)
-    parser.add_argument("--log_interval",    type=int,   default=50)
-    parser.add_argument("--device",          type=str,   default="")
-    parser.add_argument("--out_dir",         type=str,   default=str(ROOT / "out"))
-    parser.add_argument("--data_dir",        type=str,   default=str(ROOT / "data"))
-    args = parser.parse_args()
-
-    cfg = TrainConfig(**{
-        k: v for k, v in vars(args).items()
-    })
-    train(cfg)
-
-
-if __name__ == "__main__":
-    main()

@@ -1,37 +1,33 @@
 """
-Generate Vietnamese text from a trained Tiny GPT checkpoint.
+CLI: generate Vietnamese text from a trained Tiny GPT checkpoint.
 
-Input : out/ckpt.pt                    (trained model, from src/train.py)
-        tokenizer/viwiki_bpe_32k.model (SentencePiece BPE tokenizer)
+Input : artifacts/checkpoints/ckpt.pt          (trained model, from scripts/train.py)
+        artifacts/tokenizer/viwiki_bpe_32k.model (SentencePiece BPE tokenizer)
 
 Usage:
-    python src/sample.py
-    python src/sample.py --prompt "Hà Nội là"
-    python src/sample.py --prompt "Việt Nam" --max_new_tokens 200 --temperature 0.8
-    python src/sample.py --num_samples 3 --top_k 50
-    python src/sample.py --ckpt out/ckpt.pt --prompt "Lịch sử"
+    python scripts/sample.py
+    python scripts/sample.py --prompt "Hà Nội là"
+    python scripts/sample.py --prompt "Việt Nam" --max_new_tokens 200 --temperature 0.8
+    python scripts/sample.py --num_samples 3 --top_k 50
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
+import sentencepiece as spm
 import torch
 
-ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(Path(__file__).parent))
+from ntokenizer.config import GPTConfig
+from ntokenizer.device import auto_device
+from ntokenizer.model import GPT
+from ntokenizer.paths import DEFAULT_CHECKPOINT, DEFAULT_TOKENIZER_MODEL, PROCESSED_DIR
+from ntokenizer.tokenizer import encode_prompt
 
-import sentencepiece as spm
-
-from model import GPT, GPTConfig
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def load_model(ckpt_path: Path, device: torch.device) -> tuple[GPT, dict]:
-    """Load model weights from a checkpoint saved by train.py."""
+    """Load model weights from a checkpoint saved by scripts/train.py."""
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
 
     cfg_dict  = ckpt["config"]
@@ -49,9 +45,8 @@ def load_model(ckpt_path: Path, device: torch.device) -> tuple[GPT, dict]:
 
     # GPTConfig doesn't store vocab_size in TrainConfig — read from meta if missing
     if "vocab_size" not in cfg_dict:
-        meta_path = ROOT / "data" / "meta.json"
+        meta_path = PROCESSED_DIR / "meta.json"
         if meta_path.exists():
-            import json
             with open(meta_path) as fh:
                 model_cfg.vocab_size = json.load(fh)["vocab_size"]
 
@@ -63,24 +58,11 @@ def load_model(ckpt_path: Path, device: torch.device) -> tuple[GPT, dict]:
     return model, ckpt
 
 
-def encode_prompt(sp: spm.SentencePieceProcessor, text: str) -> list[int]:
-    """Encode a text prompt to token IDs. Returns at least [bos_id] if empty."""
-    if not text.strip():
-        # Empty prompt: start from BOS token (or token 0 as fallback)
-        bos = sp.bos_id()
-        return [bos if bos >= 0 else 0]
-    return sp.encode(text, out_type=int)
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Sample from Tiny Vietnamese GPT")
-    parser.add_argument("--ckpt",           type=str,   default=str(ROOT / "out" / "ckpt.pt"),
+    parser.add_argument("--ckpt",           type=str,   default=str(DEFAULT_CHECKPOINT),
                         help="Path to checkpoint file")
-    parser.add_argument("--tokenizer",      type=str,   default=str(ROOT / "tokenizer" / "viwiki_bpe_32k.model"),
+    parser.add_argument("--tokenizer",      type=str,   default=str(DEFAULT_TOKENIZER_MODEL),
                         help="Path to SentencePiece model")
     parser.add_argument("--prompt",         type=str,   default="",
                         help="Seed text (empty = start from BOS token)")
@@ -108,7 +90,7 @@ def main() -> None:
     # ------------------------------------------------------------------
     if not ckpt_path.exists():
         print(f"ERROR: checkpoint not found: {ckpt_path}", file=sys.stderr)
-        print("       Run src/train.py first.", file=sys.stderr)
+        print("       Run scripts/train.py first.", file=sys.stderr)
         sys.exit(1)
     if not tok_path.exists():
         print(f"ERROR: tokenizer not found: {tok_path}", file=sys.stderr)
@@ -118,14 +100,7 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Device
     # ------------------------------------------------------------------
-    if args.device:
-        device = torch.device(args.device)
-    else:
-        device = torch.device(
-            "mps"  if torch.backends.mps.is_available() else
-            "cuda" if torch.cuda.is_available()          else
-            "cpu"
-        )
+    device = auto_device(args.device)
 
     # ------------------------------------------------------------------
     # Load tokenizer + model

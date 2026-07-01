@@ -217,9 +217,8 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-/raw
-/extracted
-/clean
 /data
-/out
-/tokenizer
+/artifacts/checkpoints
+/artifacts/tokenizer/*
+!/artifacts/tokenizer/viwiki_bpe_8k.model
+!/artifacts/tokenizer/viwiki_bpe_8k.vocab

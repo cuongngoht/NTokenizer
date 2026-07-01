@@ -3,9 +3,9 @@
 *[Bản tiếng Việt](model_architecture.vi.md)*
 
 A deep dive into the decoder-only Transformer implemented in
-[`src/model.py`](../src/model.py). This document explains **what** each
+[`src/ntokenizer/model.py`](../src/ntokenizer/model.py). This document explains **what** each
 component does and **why** it was chosen. For hyperparameter defaults and CLI
-usage, see the [README](../README.md#step-6--model-architecture).
+usage, see the [DEVELOPMENT.md](DEVELOPMENT.md#step-6--model-architecture).
 
 ---
 
@@ -385,10 +385,33 @@ strategy rather than a more elaborate cache-compaction scheme.
 
 ## Parameter count & sanity check
 
-Running the module directly exercises the whole architecture end-to-end:
+This snippet exercises the whole architecture end-to-end — paste it into a
+`python` shell (with the package installed via `pip install -e .`) to try it
+yourself:
 
-```bash
-python src/model.py
+```python
+import math
+import torch
+from ntokenizer.config import GPTConfig
+from ntokenizer.model import GPT
+
+config = GPTConfig(vocab_size=32000, block_size=512, n_layer=8, n_head=8, n_kv_head=2, n_embd=512, dropout=0.0)
+model = GPT(config)
+print(f"Parameters : {model.count_parameters():,}")
+
+B, T = 2, 64
+ids = torch.randint(0, config.vocab_size, (B, T))
+targets = torch.randint(0, config.vocab_size, (B, T))
+
+logits, loss, kvs = model(ids, targets)
+print(f"logits : {list(logits.shape)}")
+print(f"loss   : {loss.item():.4f}  (expected ≈ {math.log(config.vocab_size):.4f} = ln(vocab_size))")
+print(f"KV cache layers : {len(kvs)}  shapes : K{list(kvs[0][0].shape)} V{list(kvs[0][1].shape)}")
+
+model.eval()
+seed = torch.zeros((1, 1), dtype=torch.long)
+out = model.generate(seed, max_new_tokens=30, temperature=0.8, top_k=50, top_p=0.9)
+print(f"generated token IDs : {out[0].tolist()}")
 ```
 
 This builds a small `GPTConfig`, reports the parameter count
@@ -396,7 +419,9 @@ This builds a small `GPTConfig`, reports the parameter count
 that the loss is close to `ln(vocab_size)` — the expected cross-entropy loss
 of an untrained model guessing uniformly over the vocabulary. It then runs
 `generate()` for a few tokens and prints the resulting KV cache shapes,
-confirming the whole prefill → incremental-decode path works.
+confirming the whole prefill → incremental-decode path works. The equivalent
+assertions are covered automatically in `tests/test_model.py` and
+`tests/test_generation.py`.
 
 ---
 
@@ -412,4 +437,4 @@ confirming the whole prefill → incremental-decode path works.
 | Sampling | Top-k only | **Top-k + Top-p + Repetition penalty** | More natural, less repetitive output |
 
 For the corresponding CLI flags, default hyperparameters, and training
-pipeline, see the [README](../README.md#step-6--model-architecture).
+pipeline, see the [DEVELOPMENT.md](DEVELOPMENT.md#step-6--model-architecture).

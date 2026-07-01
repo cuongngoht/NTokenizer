@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ntokenizer"
+version = "0.1.0"
+description = "Vietnamese GPT built from scratch — tokenizer, model, training, sampling."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.2",
+    "sentencepiece>=0.2",
+    "numpy>=1.26",
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+wikiextract = [
+    "wikiextractor @ git+https://github.com/attardi/wikiextractor.git@ab8988ebfa9e4557411f3d4c0f4ccda139e18875",
+]
+
+[project.scripts]
+ntok-build-corpus = "ntokenizer.cli.build_corpus:main"
+ntok-train-tokenizer = "ntokenizer.cli.train_tokenizer:main"
+ntok-test-tokenizer = "ntokenizer.cli.test_tokenizer:main"
+ntok-inspect-vocab = "ntokenizer.cli.inspect_vocab:main"
+ntok-prepare-dataset = "ntokenizer.cli.prepare_dataset:main"
+ntok-train = "ntokenizer.cli.train:main"
+ntok-sample = "ntokenizer.cli.sample:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -3,9 +3,9 @@
 *[English version](model_architecture.md)*
 
 Giải thích chi tiết về kiến trúc Transformer decoder-only được cài đặt trong
-[`src/model.py`](../src/model.py). Tài liệu này tập trung giải thích **mỗi
+[`src/ntokenizer/model.py`](../src/ntokenizer/model.py). Tài liệu này tập trung giải thích **mỗi
 thành phần làm gì** và **vì sao được chọn**. Xem thêm
-[README](../README.md#step-6--model-architecture) để biết các hyperparameter
+[DEVELOPMENT.md](DEVELOPMENT.md#step-6--model-architecture) để biết các hyperparameter
 mặc định và cách dùng CLI.
 
 ---
@@ -394,18 +394,42 @@ không phải một cơ chế nén cache phức tạp hơn.
 
 ## Số lượng tham số & kiểm tra nhanh
 
-Chạy trực tiếp module này sẽ kiểm thử toàn bộ kiến trúc từ đầu đến cuối:
+Đoạn code sau kiểm thử toàn bộ kiến trúc từ đầu đến cuối — dán vào một phiên
+`python` (sau khi cài package bằng `pip install -e .`) để tự thử:
 
-```bash
-python src/model.py
+```python
+import math
+import torch
+from ntokenizer.config import GPTConfig
+from ntokenizer.model import GPT
+
+config = GPTConfig(vocab_size=32000, block_size=512, n_layer=8, n_head=8, n_kv_head=2, n_embd=512, dropout=0.0)
+model = GPT(config)
+print(f"Parameters : {model.count_parameters():,}")
+
+B, T = 2, 64
+ids = torch.randint(0, config.vocab_size, (B, T))
+targets = torch.randint(0, config.vocab_size, (B, T))
+
+logits, loss, kvs = model(ids, targets)
+print(f"logits : {list(logits.shape)}")
+print(f"loss   : {loss.item():.4f}  (kỳ vọng ≈ {math.log(config.vocab_size):.4f} = ln(vocab_size))")
+print(f"KV cache layers : {len(kvs)}  shapes : K{list(kvs[0][0].shape)} V{list(kvs[0][1].shape)}")
+
+model.eval()
+seed = torch.zeros((1, 1), dtype=torch.long)
+out = model.generate(seed, max_new_tokens=30, temperature=0.8, top_k=50, top_p=0.9)
+print(f"generated token IDs : {out[0].tolist()}")
 ```
 
-Lệnh này tạo một `GPTConfig` nhỏ, in ra số lượng tham số
+Đoạn code này tạo một `GPTConfig` nhỏ, in ra số lượng tham số
 (`model.count_parameters()`), chạy một forward pass ở chế độ huấn luyện, và
 kiểm tra rằng loss gần với `ln(vocab_size)` — loss cross-entropy kỳ vọng của
 một mô hình chưa huấn luyện, đoán ngẫu nhiên đều trên toàn bộ vocabulary. Sau
 đó nó chạy `generate()` để sinh vài token và in ra shape của KV cache, xác
-nhận toàn bộ luồng prefill → decode tuần tự hoạt động đúng.
+nhận toàn bộ luồng prefill → decode tuần tự hoạt động đúng. Các assertion
+tương ứng được kiểm tra tự động trong `tests/test_model.py` và
+`tests/test_generation.py`.
 
 ---
 
@@ -420,5 +444,5 @@ nhận toàn bộ luồng prefill → decode tuần tự hoạt động đúng.
 | Sinh văn bản | Tính lại toàn bộ ngữ cảnh mỗi bước | **KV Cache** | O(T) mỗi bước thay vì O(T²) |
 | Sampling | Chỉ có top-k | **Top-k + Top-p + Repetition penalty** | Đầu ra tự nhiên hơn, ít lặp lại hơn |
 
-Xem [README](../README.md#step-6--model-architecture) để biết các flag CLI
+Xem [DEVELOPMENT.md](DEVELOPMENT.md#step-6--model-architecture) để biết các flag CLI
 tương ứng, hyperparameter mặc định và pipeline huấn luyện.
