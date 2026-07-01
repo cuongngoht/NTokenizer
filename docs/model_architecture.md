@@ -1,5 +1,7 @@
 # Model Architecture
 
+*[Bản tiếng Việt](model_architecture.vi.md)*
+
 A deep dive into the decoder-only Transformer implemented in
 [`src/model.py`](../src/model.py). This document explains **what** each
 component does and **why** it was chosen. For hyperparameter defaults and CLI

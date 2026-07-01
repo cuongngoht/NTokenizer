@@ -221,3 +221,5 @@ __marimo__/
 /extracted
 /clean
 /data
+/out
+/tokenizer

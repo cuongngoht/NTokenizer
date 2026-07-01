@@ -316,7 +316,8 @@ A decoder-only Transformer with four modern upgrades over vanilla GPT-2,
 implemented in ~320 lines of PyTorch with no external dependencies.
 
 > For a full explanation of every component — RoPE, RMSNorm, SwiGLU, GQA, and
-> the KV cache — see [`docs/model_architecture.md`](docs/model_architecture.md).
+> the KV cache — see [`docs/model_architecture.md`](docs/model_architecture.md)
+> ([bản tiếng Việt](docs/model_architecture.vi.md)).
 
 ```
 input_ids  [B, T]
