@@ -193,7 +193,7 @@ def save_meta(
         "train_tokens": n_train,
         "val_tokens": n_val,
         # Store a relative path so the project stays portable
-        "tokenizer": str(model_path.relative_to(ROOT)),
+        "tokenizer": str(model_path.resolve().relative_to(ROOT.resolve())),
     }
 
     meta_path = out_dir / "meta.json"

@@ -1,17 +1,19 @@
-# Tiny Vietnamese GPT
+# Vietnamese GPT v2
 
-Build a small Vietnamese language model entirely from scratch — no pre-trained
-weights, no Hugging Face abstractions.  Every step is a plain Python script you
-can read, modify, and learn from.
+Build a Vietnamese language model entirely from scratch — no pre-trained weights,
+no Hugging Face abstractions.  Every step is a plain Python script you can read,
+modify, and learn from.
 
 ```
-Wikipedia XML  →  clean text  →  BPE tokenizer  →  binary dataset
-                                                         ↓
-                                              GPT architecture (PyTorch)
-                                                         ↓
-                                                   training loop
-                                                         ↓
-                                                  generate text
+Wikipedia XML  →  clean text  →  BPE tokenizer (32k)  →  binary dataset
+                                                                ↓
+                                                  GPT v2 (PyTorch)
+                                                  RoPE · GQA · SwiGLU · RMSNorm
+                                                                ↓
+                                                         training loop
+                                                                ↓
+                                                        generate text
+                                               (KV cache · top-p · rep. penalty)
 ```
 
 ---
@@ -26,7 +28,7 @@ Wikipedia XML  →  clean text  →  BPE tokenizer  →  binary dataset
 6. [Step 3 — Test tokenizer](#step-3--test-tokenizer)
 7. [Step 4 — Inspect vocabulary](#step-4--inspect-vocabulary)
 8. [Step 5 — Prepare binary dataset](#step-5--prepare-binary-dataset)
-9. [Step 6 — GPT model architecture](#step-6--gpt-model-architecture)
+9. [Step 6 — Model architecture](#step-6--model-architecture)
 10. [Step 7 — Training loop](#step-7--training-loop)
 11. [Step 8 — Generate text](#step-8--generate-text)
 12. [Design decisions](#design-decisions)
@@ -68,7 +70,7 @@ NTokenizer/
 │   └── prepare_dataset.py                      # Step 5 – encode corpus → binary files
 │
 ├── src/
-│   ├── model.py                                # Step 6 – GPT decoder-only Transformer
+│   ├── model.py                                # Step 6 – GPT v2 Transformer
 │   ├── train.py                                # Step 7 – training loop (AdamW + cosine LR)
 │   └── sample.py                               # Step 8 – load checkpoint, generate text
 │
@@ -255,7 +257,6 @@ python scripts/prepare_dataset.py
 
 # Encode with a specific model
 python scripts/prepare_dataset.py --model tokenizer/viwiki_bpe_32k.model
-python scripts/prepare_dataset.py --model tokenizer/viwiki_bpe_8k.model
 ```
 
 **What it does**
@@ -303,34 +304,48 @@ train = np.memmap("data/train.bin", dtype="uint16", mode="r")
 
 ---
 
-## Step 6 — GPT model architecture
+## Step 6 — Model architecture
 
 ```bash
-python src/model.py     # runs a sanity check
+python src/model.py     # runs a forward pass + generation sanity check
 ```
 
-**Architecture**
+**Architecture overview**
 
-A decoder-only Transformer (same family as GPT-2), implemented from scratch in
-~250 lines of PyTorch.
+A decoder-only Transformer with four modern upgrades over vanilla GPT-2,
+implemented in ~320 lines of PyTorch with no external dependencies.
+
+> For a full explanation of every component — RoPE, RMSNorm, SwiGLU, GQA, and
+> the KV cache — see [`docs/model_architecture.md`](docs/model_architecture.md).
 
 ```
 input_ids  [B, T]
     │
-    ├─ Token embedding   wte  [vocab_size, C]  →  [B, T, C]
-    ├─ Position embedding wpe  [block_size, C]  →  [B, T, C]
-    └─ x = tok_emb + pos_emb  + dropout        →  [B, T, C]
+    └─ Token embedding  wte  [vocab_size, C]  →  [B, T, C]
+         │                 (no separate position table — RoPE handles it)
+         ├─ Block 0:
+         │    pre-RMSNorm → GQA Attention (RoPE) → residual
+         │    pre-RMSNorm → SwiGLU MLP           → residual
+         ├─ Block 1 … N-1: (same)
          │
-         ├─ Block 0:  LayerNorm → CausalSelfAttention → residual
-         │            LayerNorm → MLP                 → residual
-         ├─ Block 1–3: (same)
-         │
-         └─ Final LayerNorm  →  [B, T, C]
+         └─ Final RMSNorm  →  [B, T, C]
               │
-              └─ LM head  Linear(C, vocab_size)  →  logits  [B, T, vocab_size]
+              └─ LM head  Linear(C, vocab_size, bias=False)  →  [B, T, vocab_size]
+                          (weight-tied to wte)
 ```
 
-`B` = batch size, `T` = sequence length, `C` = `n_embd` = 256.
+`B` = batch size · `T` = sequence length · `C` = `n_embd`
+
+**Upgrades vs the original**
+
+| Component | Original | v2 | Benefit |
+|---|---|---|---|
+| Positional encoding | Learned `wpe` table | **RoPE** | Generalises beyond training length; no extra parameters |
+| Normalization | `LayerNorm` (with bias) | **RMSNorm** (no bias) | Simpler, slightly faster, equally stable |
+| MLP activation | `GELU` with 4× expansion | **SwiGLU** with 8/3× expansion | Better gradient flow; consistently lower loss |
+| Attention heads | Multi-Head Attention | **Grouped Query Attention** | Fewer KV heads → smaller KV cache, faster inference |
+| Generation | Re-computes full context each step | **KV Cache** | O(T) per step instead of O(T²) |
+| Sampling | Top-k only | **Top-k + Top-p + Rep. penalty** | More natural, less repetitive output |
 
 **Default hyperparameters**
 
@@ -339,33 +354,29 @@ input_ids  [B, T]
 | `vocab_size` | 32 000 | Matches the BPE tokenizer |
 | `block_size` | 256 | Maximum context length in tokens |
 | `n_layer` | 4 | Number of Transformer blocks |
-| `n_head` | 4 | Attention heads per block |
-| `n_embd` | 256 | Embedding / model dimension |
-| `dropout` | 0.1 | Dropout probability (0 at inference) |
-| Total params | ~8.5 M | Fits comfortably on CPU or laptop GPU |
+| `n_head` | 4 | Number of query heads per block |
+| `n_kv_head` | 4 | Number of KV heads (= `n_head` → standard MHA by default) |
+| `n_embd` | 256 | Embedding / model width |
+| `dropout` | 0.1 | Dropout probability (set to 0 at inference) |
+| `rope_theta` | 10 000 | RoPE base frequency |
 
-**Key implementation details**
+**Example larger config (Apple M-series, ~40 M params)**
 
-- **Pre-norm** (LayerNorm before each sublayer) — more stable than post-norm.
-- **Weight tying** — `lm_head` and `wte` share the same weight matrix, saving
-  ~2 M parameters.
-- **Flash Attention** — uses `F.scaled_dot_product_attention` on PyTorch ≥ 2.0
-  for faster attention on MPS/CUDA; falls back to manual attention on older
-  versions.
-- **Causal mask** — lower-triangular mask ensures token `t` cannot attend to
-  positions `t+1, t+2, …` (no peeking at future tokens).
+```bash
+python src/train.py \
+    --n_layer 8 --n_head 8 --n_kv_head 2 \
+    --n_embd 512 --block_size 512 \
+    --batch_size 16
+```
 
 **Sanity check output**
 
 ```
-Parameters     : 8,519,680
-logits shape   : [2, 64, 32000]
-loss           : ~10.37  (expected ≈ ln(32000) = 10.37 for random weights)
-generated IDs  : [0, 12341, 27102, ...]   shape [1, 21]
+Parameters : ~8.5 M  (default config)
+logits     : [2, 64, 32000]
+loss       : ~10.37  (expected ≈ ln(32000) for random weights)
+KV cache   : 4 layers, K[2, 4, 64, 64]
 ```
-
-A freshly initialised model predicts roughly uniformly over all 32 000 tokens,
-so the loss starts near `ln(32000) ≈ 10.37`.  Training drives it down.
 
 ---
 
@@ -381,7 +392,8 @@ python src/train.py
 2. Runs forward pass → computes cross-entropy loss.
 3. Runs backward pass → computes gradients.
 4. Clips gradient norm to 1.0 to prevent instability.
-5. Updates weights with AdamW.
+5. Updates weights with AdamW (weight decay applied to matrices only, not
+   RMSNorm scales).
 6. Evaluates on `data/val.bin` every `eval_interval` steps.
 7. Saves the best checkpoint (lowest val loss) to `out/ckpt.pt`.
 
@@ -392,10 +404,15 @@ python src/train.py
 | `--max_iters` | 5 000 | Total training steps |
 | `--batch_size` | 32 | Sequences per step |
 | `--block_size` | 256 | Tokens per sequence |
+| `--n_layer` | 4 | Transformer blocks |
+| `--n_head` | 4 | Query attention heads |
+| `--n_kv_head` | 4 | KV heads (set < `n_head` to enable GQA) |
+| `--n_embd` | 256 | Model width |
+| `--rope_theta` | 10000 | RoPE base frequency |
 | `--learning_rate` | 3e-4 | Peak LR (cosine-decays to `min_lr`) |
 | `--min_lr` | 3e-5 | Floor LR (1/10 of peak) |
 | `--warmup_iters` | 100 | Steps of linear LR warm-up |
-| `--weight_decay` | 0.1 | AdamW weight decay (matrices only) |
+| `--weight_decay` | 0.1 | AdamW weight decay |
 | `--grad_clip` | 1.0 | Max gradient norm |
 | `--eval_interval` | 500 | Evaluate + maybe checkpoint every N steps |
 | `--eval_iters` | 100 | Batches to average for a stable eval loss |
@@ -415,22 +432,22 @@ python src/train.py
 
 **Expected loss progression**
 
-| Steps | Train loss | Val loss | Notes |
-|---|---|---|---|
-| 0 | ~10.4 | ~10.4 | Random weights — uniform over vocab |
-| 500 | ~5–6 | ~5–6 | Model starts picking up common words |
-| 1 000 | ~4–5 | ~4–5 | Vietnamese patterns emerging |
-| 5 000 | ~3–4 | ~3–4 | Coherent subword sequences |
-| 20 000+ | ~2–3 | ~2.5–3 | Readable Vietnamese text |
+| Steps | Val loss | Notes |
+|---|---|---|
+| 0 | ~10.4 | Random weights — uniform over vocab |
+| 500 | ~5–6 | Model picks up common words |
+| 1 000 | ~4–5 | Vietnamese patterns emerging |
+| 5 000 | ~3–4 | Coherent subword sequences |
+| 20 000+ | ~2–3 | Readable Vietnamese sentences |
 
 **Resuming training**
 
 ```bash
-# Just re-run the same command — if out/ckpt.pt exists it resumes automatically
+# Just re-run — if out/ckpt.pt exists it resumes automatically
 python src/train.py
 ```
 
-**Running a quick smoke test (100 steps)**
+**Quick smoke test (100 steps)**
 
 ```bash
 python src/train.py --max_iters 100 --eval_interval 50 --eval_iters 10
@@ -449,11 +466,14 @@ python src/sample.py
 | Flag | Default | Effect |
 |---|---|---|
 | `--prompt` | `""` | Seed text (empty = start from BOS token) |
-| `--max_new_tokens` | 200 | How many tokens to generate |
-| `--temperature` | 0.8 | `< 1` = focused / repetitive; `> 1` = creative / random |
-| `--top_k` | 50 | Sample only from the top-k most likely tokens (`0` = no limit) |
+| `--max_new_tokens` | 200 | Number of tokens to generate |
+| `--temperature` | 0.8 | `< 1` = focused; `> 1` = creative / random |
+| `--top_k` | 50 | Keep only the top-k tokens before sampling (`0` = disabled) |
+| `--top_p` | 0.95 | Nucleus: keep smallest set whose cumulative prob ≥ p (`0` = disabled) |
+| `--repetition_penalty` | 1.1 | Divide logits of already-seen tokens (`1.0` = disabled) |
 | `--num_samples` | 1 | Generate N independent completions |
 | `--ckpt` | `out/ckpt.pt` | Path to checkpoint |
+| `--tokenizer` | `tokenizer/viwiki_bpe_32k.model` | SentencePiece model |
 | `--device` | auto | Force `cpu` / `cuda` / `mps` |
 
 **Examples**
@@ -465,34 +485,36 @@ python src/sample.py
 # Seed with Vietnamese text
 python src/sample.py --prompt "Hà Nội là thủ đô"
 
-# More tokens, more creative
+# More tokens, nucleus sampling, repetition penalty
 python src/sample.py --prompt "Lịch sử Việt Nam" \
-    --max_new_tokens 300 --temperature 1.0 --top_k 100
+    --max_new_tokens 300 --temperature 0.9 \
+    --top_k 50 --top_p 0.95 --repetition_penalty 1.15
 
-# Compare 3 different continuations from the same prompt
+# Compare 3 different continuations
 python src/sample.py --prompt "Việt Nam" --num_samples 3
 
-# Focused / deterministic output
+# Focused / near-deterministic output
 python src/sample.py --prompt "Ngôn ngữ" --temperature 0.5 --top_k 20
 ```
 
-**Understanding temperature and top-k**
+**Understanding the sampling parameters**
 
-The model outputs a probability distribution over all 32 000 tokens.
-Two settings control how you sample from it:
+The model outputs a probability distribution over all 32 000 tokens at each step.
+Three controls shape how you sample from it — they can be combined:
 
-- **temperature** divides the logits before softmax.
-  - `temperature=1.0` — sample from the raw distribution.
-  - `temperature=0.5` — sharpen: high-probability tokens dominate, output is
-    more predictable and repetitive.
-  - `temperature=1.5` — flatten: low-probability tokens get a chance, output is
-    more surprising and may be incoherent.
+- **temperature** divides logits before softmax.
+  `0.5` → sharper (more predictable). `1.0` → raw distribution. `1.5` → flatter (more surprising).
 
-- **top_k** restricts sampling to the `k` most probable tokens and ignores the
-  rest.
-  - `top_k=1` — always pick the single most likely token (greedy decoding).
-  - `top_k=50` — sample from the top 50 (good default).
-  - `top_k=0` — no restriction; sample from the full vocabulary.
+- **top_k** restricts sampling to the k most probable tokens.
+  `top_k=1` is greedy decoding. `top_k=50` is a good general default.
+
+- **top_p** (nucleus) keeps the smallest set of tokens whose cumulative
+  probability exceeds p, then samples from that set only.
+  `top_p=0.95` is more adaptive than a fixed k — it narrows automatically when
+  the model is confident and widens when it is uncertain.
+
+- **repetition_penalty** > 1 down-weights tokens that appear earlier in the
+  context, discouraging the model from looping on the same phrase.
 
 ---
 
@@ -511,14 +533,12 @@ BPE is the algorithm behind GPT-2, RoBERTa, LLaMA, and most modern LLMs.
 
 ### Why vocab_size = 32 000?
 
-32 000 tokens aligns with common multilingual tokenizers (mBERT uses 30 000,
-LLaMA uses 32 000) and gives Vietnamese much better coverage:
+32 000 tokens gives Vietnamese much better coverage than smaller vocabularies:
 
 - ~7 000 distinct Vietnamese syllables as single tokens.
 - Thousands of common multi-syllable words and phrases as merged tokens.
 - Room for digits, punctuation, code, and foreign words without byte-level
   fragmentation.
-- Embedding matrix size stays manageable (~8 M parameters vs ~5 M for 8k).
 
 Use `--vocab_size 8000` if you need a smaller, faster model for experimentation.
 
@@ -536,13 +556,101 @@ decorative.  Removing them or lowercasing collapses distinct words:
 | `mã` | code / horse (Sino-Vietnamese) |
 | `mạ` | rice seedling |
 
-Any tokenizer that strips diacritics would make these six words identical,
-producing a model that cannot distinguish them.
+### Why RoPE instead of learned positional embeddings?
+
+Learned positional embeddings (`wpe`) assign a fixed vector to each absolute
+position.  They cannot generalise beyond the `block_size` they were trained on.
+
+Rotary Positional Embeddings (RoPE) encode position by rotating the Q and K
+vectors in complex space.  The rotation at position `t` is:
+
+```
+q_rotated = q * e^{i * t * θ}   (complex multiplication, applied per head-dim pair)
+```
+
+Benefits:
+- **No extra parameters** — the frequencies are computed once and stored as a buffer.
+- **Relative attention** — dot-product `q · k` naturally captures the *relative*
+  distance between positions, not just absolute indices.
+- **Length generalisation** — the model can attend to positions it never saw
+  during training (up to a point), useful when generating long sequences.
+
+RoPE is used in LLaMA, Mistral, Qwen, DeepSeek, and virtually all modern open LLMs.
+
+### Why RMSNorm instead of LayerNorm?
+
+Standard LayerNorm subtracts the mean, divides by the standard deviation, then
+applies a learned scale (`weight`) and bias.  RMSNorm skips the mean subtraction
+and bias:
+
+```
+RMSNorm(x) = x / RMS(x) * weight       RMS(x) = sqrt(mean(x²) + ε)
+```
+
+Two practical advantages:
+- **Fewer parameters** — no bias vector.
+- **Slightly faster** — one fewer statistic to compute per forward pass.
+
+Empirically, removing the mean subtraction has no measurable quality cost at
+model sizes up to billions of parameters.  Used in LLaMA, Mistral, Falcon, etc.
+
+### Why SwiGLU instead of GELU?
+
+The original GPT-2 MLP is:
+
+```
+MLP(x) = W₂ · GELU(W₁ · x)     hidden_dim = 4 × n_embd
+```
+
+SwiGLU introduces a gate:
+
+```
+SwiGLU(x) = W_down · (SiLU(W_gate · x) ⊙ W_up · x)    hidden_dim ≈ 8/3 × n_embd
+```
+
+The gate (`SiLU(W_gate · x)`) acts as a learned filter over the up-projected
+features.  In practice this consistently produces lower loss at the same
+parameter count.  The 8/3 expansion factor (instead of 4×) keeps total
+parameters similar while adding the gate.
+
+Used in LLaMA, PaLM, Gemma, and most post-2023 open LLMs.
+
+### Why Grouped Query Attention (GQA)?
+
+Standard Multi-Head Attention (MHA) has H query heads **and** H key/value heads.
+During generation, the model must store one K and one V matrix per layer per head
+in the KV cache — this grows as `O(T × H × head_dim)`.
+
+GQA splits Q heads into groups that share a single pair of KV heads:
+
+```
+n_head = 8 (Q heads)    n_kv_head = 2 (KV heads)    → 4 Q heads share 1 KV pair
+```
+
+The KV cache shrinks by `n_head / n_kv_head` × — here 4×.  Quality loss is
+negligible when `n_kv_head ≥ 2`.  Setting `n_kv_head = n_head` recovers standard MHA.
+
+Used in LLaMA 2/3, Mistral, Gemma, Falcon, etc.
+
+### Why KV Cache?
+
+Without a cache, generating each new token requires a full forward pass through
+the entire context.  If the context has T tokens:
+- Each attention layer computes Q, K, V for all T tokens: **O(T²)** per step.
+- Total cost for N new tokens: **O(N × T²)**.
+
+With the KV cache, keys and values from past tokens are stored and reused:
+- Only the new token's Q, K, V are computed: **O(T)** per step.
+- Past K and V are read from cache — no recomputation.
+- Total cost: **O(T + N × T)** ≈ **O(N × T)**.
+
+For a 256-token context generating 200 new tokens, the cache gives a ~50× speedup
+in attention computation.
 
 ### Why uint16 for the binary dataset?
 
 Each token ID fits in a 16-bit unsigned integer (range 0–65 535).  At
-`vocab_size = 8 000` this is well within the limit.  `uint16` uses half the
+`vocab_size = 32 000` this is well within the limit.  `uint16` uses half the
 memory of `int32` and loads faster from disk — important when the dataset is
 hundreds of millions of tokens.
 
@@ -580,7 +688,7 @@ data/meta.json
         ▼  src/train.py
 out/ckpt.pt             ← trained model weights
         │
-        ▼  src/sample.py
+        ▼  src/sample.py (with KV cache)
 "Hà Nội là thủ đô của nước Cộng hòa…"
 ```
 
@@ -590,18 +698,23 @@ out/ckpt.pt             ← trained model weights
 
 **Monitor val loss, not train loss.**
 Train loss measures how well the model memorises the current batch.
-Val loss measures how well it generalises.  If train loss keeps falling but val
-loss plateaus or rises, the model is overfitting — stop or add dropout.
+Val loss measures generalisation.  If train loss keeps falling but val loss
+plateaus or rises, the model is overfitting — stop or increase dropout.
 
 **When to stop.**
-For a 5 M-parameter model on this dataset, diminishing returns set in around
+For an ~8 M-parameter model on this dataset, diminishing returns set in around
 10 000–20 000 steps.  A val loss of ~3.0 produces recognisable Vietnamese
-subword sequences.  A val loss below 2.5 should produce mostly coherent
-sentences.
+subword sequences.  A val loss below 2.5 produces mostly coherent sentences.
 
 **Out of memory.**
 Reduce `--batch_size` (try 16 or 8) or `--block_size` (try 128).
 Memory scales roughly as `batch_size × block_size × n_embd × 4 bytes`.
+
+**Enable GQA to save memory.**
+```bash
+# Use 2 KV heads instead of 8 — 4× smaller KV cache
+python src/train.py --n_head 8 --n_kv_head 2 --n_embd 512
+```
 
 **Faster training on Apple Silicon.**
 The MPS backend is auto-detected.  If you see it is not being used:
@@ -614,9 +727,12 @@ python src/train.py --device mps
 python src/train.py --max_iters 20000 --eval_interval 1000
 ```
 
-**Larger model (if you have more GPU memory).**
+**Larger model (~40 M params, Apple M-series).**
 ```bash
-python src/train.py --n_layer 6 --n_head 6 --n_embd 384 --batch_size 16
+python src/train.py \
+    --n_layer 8 --n_head 8 --n_kv_head 2 \
+    --n_embd 512 --block_size 512 \
+    --batch_size 16 --max_iters 20000
 ```
 
 ---
@@ -650,7 +766,7 @@ python src/train.py     # must train before sampling
 ```
 
 **Loss is NaN after a few steps.**
-A learning rate that is too high causes gradients to explode.  Try:
+The learning rate is too high — gradients are exploding.  Try:
 ```bash
 python src/train.py --learning_rate 1e-4 --grad_clip 0.5
 ```
@@ -664,6 +780,10 @@ python src/sample.py --device cpu
 
 **Generated text looks like garbage.**
 The model needs more training.  Check `val_loss` in the checkpoint:
-`loss > 4` → needs significantly more steps.
-`loss ~3` → basic Vietnamese subwords.
-`loss ~2.5` → sentences start to make sense.
+
+| Val loss | Quality |
+|---|---|
+| > 4.0 | Random-looking subwords |
+| ~3.0 | Recognisable Vietnamese words, poor coherence |
+| ~2.5 | Sentences start to make sense |
+| < 2.0 | Mostly fluent Vietnamese (requires long training) |

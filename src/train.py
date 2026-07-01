@@ -28,7 +28,7 @@ import torch.nn as nn
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(Path(__file__).parent))
 
-from Users.cuongn.NTokenizer.src.model import GPT, GPTConfig
+from model import GPT, GPTConfig
 
 
 # ---------------------------------------------------------------------------
@@ -45,9 +45,10 @@ class TrainConfig:
     block_size:          int   = 256
     n_layer:             int   = 4
     n_head:              int   = 4
+    n_kv_head:           int   = 4      # GQA: must divide n_head evenly
     n_embd:              int   = 256
     dropout:             float = 0.1
-    bias:                bool  = True
+    rope_theta:          float = 10000.0
 
     # ── Optimization ─────────────────────────────────────────────────────
     batch_size:          int   = 32
@@ -213,7 +214,7 @@ def estimate_loss(
         losses = torch.zeros(cfg.eval_iters)
         for k in range(cfg.eval_iters):
             x, y = get_batch(data, cfg.block_size, cfg.batch_size, device)
-            _, loss = model(x, y)
+            _, loss, _ = model(x, y)
             losses[k] = loss.item()
         out[split] = losses.mean().item()
     model.train()
@@ -331,13 +332,14 @@ def train(cfg: TrainConfig) -> None:
     # Model
     # ------------------------------------------------------------------
     model_cfg = GPTConfig(
-        vocab_size = vocab_size,
-        block_size = cfg.block_size,
-        n_layer    = cfg.n_layer,
-        n_head     = cfg.n_head,
-        n_embd     = cfg.n_embd,
-        dropout    = cfg.dropout,
-        bias       = cfg.bias,
+        vocab_size  = vocab_size,
+        block_size  = cfg.block_size,
+        n_layer     = cfg.n_layer,
+        n_head      = cfg.n_head,
+        n_kv_head   = cfg.n_kv_head,
+        n_embd      = cfg.n_embd,
+        dropout     = cfg.dropout,
+        rope_theta  = cfg.rope_theta,
     )
     model = GPT(model_cfg).to(device)
     print(f"  Parameters     : {model.count_parameters():,}")
@@ -395,7 +397,7 @@ def train(cfg: TrainConfig) -> None:
 
         # ── Forward + backward ──────────────────────────────────────────
         x, y = get_batch(train_data, cfg.block_size, cfg.batch_size, device)
-        _, loss = model(x, y)
+        _, loss, _ = model(x, y)
 
         # Zero gradients (set_to_none=True is faster than zeroing in-place)
         optimizer.zero_grad(set_to_none=True)
@@ -454,8 +456,10 @@ def main() -> None:
     parser.add_argument("--grad_clip",       type=float, default=1.0)
     parser.add_argument("--n_layer",         type=int,   default=4)
     parser.add_argument("--n_head",          type=int,   default=4)
+    parser.add_argument("--n_kv_head",       type=int,   default=4)
     parser.add_argument("--n_embd",          type=int,   default=256)
     parser.add_argument("--block_size",      type=int,   default=256)
+    parser.add_argument("--rope_theta",      type=float, default=10000.0)
     parser.add_argument("--eval_interval",   type=int,   default=500)
     parser.add_argument("--eval_iters",      type=int,   default=100)
     parser.add_argument("--log_interval",    type=int,   default=50)

@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import sentencepiece as spm
 
-from Users.cuongn.NTokenizer.src.model import GPT, GPTConfig
+from model import GPT, GPTConfig
 
 
 # ---------------------------------------------------------------------------
@@ -35,14 +35,16 @@ def load_model(ckpt_path: Path, device: torch.device) -> tuple[GPT, dict]:
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
 
     cfg_dict  = ckpt["config"]
+    n_head = cfg_dict["n_head"]
     model_cfg = GPTConfig(
-        vocab_size = cfg_dict.get("vocab_size", 32000),  # may not be in older ckpts
-        block_size = cfg_dict["block_size"],
-        n_layer    = cfg_dict["n_layer"],
-        n_head     = cfg_dict["n_head"],
-        n_embd     = cfg_dict["n_embd"],
-        dropout    = 0.0,    # always disable dropout at inference
-        bias       = cfg_dict["bias"],
+        vocab_size  = cfg_dict.get("vocab_size", 32000),
+        block_size  = cfg_dict["block_size"],
+        n_layer     = cfg_dict["n_layer"],
+        n_head      = n_head,
+        n_kv_head   = cfg_dict.get("n_kv_head", n_head),  # fallback: standard MHA
+        n_embd      = cfg_dict["n_embd"],
+        dropout     = 0.0,
+        rope_theta  = cfg_dict.get("rope_theta", 10000.0),
     )
 
     # GPTConfig doesn't store vocab_size in TrainConfig — read from meta if missing
@@ -88,6 +90,10 @@ def main() -> None:
                         help="> 1 = more random, < 1 = more focused (default: 0.8)")
     parser.add_argument("--top_k",          type=int,   default=50,
                         help="Sample from top-k tokens only (0 = disabled)")
+    parser.add_argument("--top_p",          type=float, default=0.95,
+                        help="Nucleus sampling threshold (0 = disabled, default: 0.95)")
+    parser.add_argument("--repetition_penalty", type=float, default=1.1,
+                        help="Penalty for repeating tokens (1.0 = disabled, default: 1.1)")
     parser.add_argument("--num_samples",    type=int,   default=1,
                         help="Number of independent samples to generate")
     parser.add_argument("--device",         type=str,   default="",
@@ -138,6 +144,8 @@ def main() -> None:
     print(f"  max_new_tokens : {args.max_new_tokens}")
     print(f"  temperature    : {args.temperature}")
     print(f"  top_k          : {args.top_k if args.top_k > 0 else 'disabled'}")
+    print(f"  top_p          : {args.top_p if args.top_p > 0 else 'disabled'}")
+    print(f"  rep. penalty   : {args.repetition_penalty}")
     print()
 
     # ------------------------------------------------------------------
@@ -157,6 +165,7 @@ def main() -> None:
     # Generate
     # ------------------------------------------------------------------
     top_k = args.top_k if args.top_k > 0 else None
+    top_p = args.top_p if args.top_p > 0 else None
 
     with torch.no_grad():
         for i in range(args.num_samples):
@@ -165,9 +174,11 @@ def main() -> None:
 
             out_ids = model.generate(
                 idx,
-                max_new_tokens = args.max_new_tokens,
-                temperature    = args.temperature,
-                top_k          = top_k,
+                max_new_tokens      = args.max_new_tokens,
+                temperature         = args.temperature,
+                top_k               = top_k,
+                top_p               = top_p,
+                repetition_penalty  = args.repetition_penalty,
             )
 
             # Decode only the newly generated tokens (after the prompt)
