@@ -14,6 +14,7 @@ from pathlib import Path
 import sentencepiece as spm
 
 from ntokenizer.paths import CORPUS_PATH, TOKENIZER_DIR
+from ntokenizer.tokenizer import estimate_vocab_size
 
 
 def train(input_path: Path, model_prefix: str, vocab_size: int) -> None:
@@ -80,8 +81,8 @@ def verify_output(model_prefix: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train Vietnamese SentencePiece BPE tokenizer")
-    parser.add_argument("--vocab_size", type=int, default=8000,
-                        help="Vocabulary size (default: 8000)")
+    parser.add_argument("--vocab_size", type=int, default=None,
+                        help="Vocabulary size (default: auto-picked from corpus file size)")
     parser.add_argument("--input", type=str, default=str(CORPUS_PATH),
                         help="Path to corpus text file")
     parser.add_argument("--output_dir", type=str, default=str(TOKENIZER_DIR),
@@ -90,16 +91,24 @@ def main() -> None:
 
     input_path = Path(args.input)
     output_dir = Path(args.output_dir)
-    model_prefix = str(output_dir / f"viwiki_bpe_{args.vocab_size // 1000}k")
 
     if not input_path.exists():
         print(f"ERROR: input file not found: {input_path}", file=sys.stderr)
         print("Run scripts/build_corpus.py first to generate the corpus.", file=sys.stderr)
         sys.exit(1)
 
+    vocab_size = args.vocab_size
+    if vocab_size is None:
+        vocab_size = estimate_vocab_size(input_path)
+        size_mb = input_path.stat().st_size / (1024 ** 2)
+        print(f"--vocab_size not given: picked {vocab_size} for a {size_mb:.0f} MB corpus "
+              f"(pass --vocab_size to override).\n")
+
+    model_prefix = str(output_dir / f"viwiki_bpe_{vocab_size // 1000}k")
+
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    train(input_path, model_prefix, args.vocab_size)
+    train(input_path, model_prefix, vocab_size)
 
     print("\nOutput files:")
     verify_output(model_prefix)

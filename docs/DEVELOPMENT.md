@@ -45,8 +45,8 @@ wikiextractor data/raw/viwiki-latest-pages-articles.xml.bz2 \
 # 2. Build the clean corpus
 python scripts/build_corpus.py
 
-# 3. Train the BPE tokenizer (32k vocab)
-python scripts/train_tokenizer_spm.py --vocab_size 32000
+# 3. Train the BPE tokenizer (vocab_size auto-picked from corpus size)
+python scripts/train_tokenizer_spm.py
 
 # 4. Sanity-check the tokenizer (optional)
 python scripts/test_tokenizer.py
@@ -110,10 +110,11 @@ wikiextractor data/raw/viwiki-latest-pages-articles.xml.bz2 \
 ## Step 2 — Train BPE tokenizer
 
 ```bash
-# Train 32k tokenizer (default / recommended)
-python scripts/train_tokenizer_spm.py --vocab_size 32000
+# Auto-picks vocab_size from your corpus file size (recommended default)
+python scripts/train_tokenizer_spm.py
 
-# Train 8k tokenizer (smaller, faster)
+# Force a specific vocab size instead
+python scripts/train_tokenizer_spm.py --vocab_size 32000
 python scripts/train_tokenizer_spm.py --vocab_size 8000
 
 # Custom corpus or output directory
@@ -127,11 +128,37 @@ python scripts/train_tokenizer_spm.py --vocab_size 32000 \
 Trains a Byte Pair Encoding (BPE) tokenizer on up to 1 million sentences
 sampled from `data/interim/corpus.txt` using the `sentencepiece` library.
 
+**Auto-sized `vocab_size`**
+
+If you don't pass `--vocab_size`, it's picked from your corpus file size
+(`ntokenizer.tokenizer.estimate_vocab_size`) instead of a hardcoded number —
+a bigger corpus supports (and benefits from) a bigger vocabulary:
+
+| Corpus size | vocab_size |
+|---|---|
+| < 5 MB | 4 000 |
+| 5–50 MB | 8 000 |
+| 50–200 MB | 16 000 |
+| 200 MB – 1 GB | 32 000 |
+| > 1 GB | 48 000 |
+
+The ceiling (48 000) stays comfortably under 65 535 — the binary dataset
+format ([Step 5](#step-5--prepare-binary-dataset)) stores token IDs as
+`uint16`, which tops out at 65 535. Pass `--vocab_size` explicitly to
+override the automatic choice.
+
+The output model is always named after whatever `vocab_size` was actually
+used (`viwiki_bpe_{N}k.model`). The later steps' default `--model` /
+`--tokenizer` flags point at `viwiki_bpe_32k.model` — if your corpus
+auto-picked a different size, pass `--model artifacts/tokenizer/viwiki_bpe_Nk.model`
+(and `--tokenizer` at [Step 8](#step-8--generate-text)) explicitly in every
+following step.
+
 Training parameters:
 
 | Parameter | Value | Why |
 |---|---|---|
-| `vocab_size` | 32 000 | Good coverage of Vietnamese syllables + subwords + multilingual tokens |
+| `vocab_size` | auto (see above), or your `--vocab_size` | Good coverage of Vietnamese syllables + subwords + multilingual tokens |
 | `model_type` | `bpe` | Iterative merge — good balance for Vietnamese morphology |
 | `character_coverage` | 0.9995 | Keeps rare characters as byte-level fallbacks |
 | Special tokens | `<unk>` `<pad>` `<bos>` `<eos>` | Required by the training pipeline |

@@ -46,6 +46,30 @@ def encode_prompt(sp: spm.SentencePieceProcessor, text: str) -> list[int]:
     return sp.encode(text, out_type=int)
 
 
+# Corpus size (MB) -> vocab_size. Larger corpora support (and benefit from) a
+# larger vocabulary; the ceiling stays well under UINT16_MAX since the binary
+# dataset format stores token IDs as uint16.
+_VOCAB_SIZE_THRESHOLDS = [
+    (5, 4_000),
+    (50, 8_000),
+    (200, 16_000),
+    (1024, 32_000),
+]
+_VOCAB_SIZE_ABOVE_MAX_THRESHOLD = 48_000
+
+
+def estimate_vocab_size(corpus_path: Path) -> int:
+    """
+    Pick a BPE vocab size from the corpus file size, so you don't have to
+    guess a fixed number regardless of how much data you actually have.
+    """
+    size_mb = corpus_path.stat().st_size / (1024 ** 2)
+    for threshold_mb, vocab_size in _VOCAB_SIZE_THRESHOLDS:
+        if size_mb < threshold_mb:
+            return vocab_size
+    return _VOCAB_SIZE_ABOVE_MAX_THRESHOLD
+
+
 def load_vocab_tsv(vocab_path: Path) -> list[tuple[str, float]]:
     """Read a tokenizer .vocab file (TSV: token<TAB>score) into memory."""
     tokens = []
