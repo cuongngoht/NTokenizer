@@ -50,3 +50,9 @@ class TrainConfig:
 
     # ── Device (empty = auto-detect) ─────────────────────────────────────
     device:              str   = ""
+
+    # ── Fine-tuning ───────────────────────────────────────────────────────
+    # Path to a pretrained ckpt.pt to initialize model weights from.
+    # Only used when out_dir has no ckpt.pt of its own yet (a fresh
+    # fine-tuning run); resuming an interrupted run always takes priority.
+    init_from:           str   = ""

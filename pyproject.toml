@@ -32,6 +32,7 @@ ntok-inspect-vocab = "ntokenizer.cli.inspect_vocab:main"
 ntok-prepare-dataset = "ntokenizer.cli.prepare_dataset:main"
 ntok-train = "ntokenizer.cli.train:main"
 ntok-sample = "ntokenizer.cli.sample:main"
+ntok-make-meta = "ntokenizer.cli.make_meta:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -606,6 +606,16 @@ The model needs more training.  Check `val_loss` in the checkpoint:
 
 ---
 
+## Fine-tuning on your own data
+
+To adapt an already-trained checkpoint to a smaller, domain-specific corpus
+instead of training from scratch, see
+[`FINETUNING.md`](FINETUNING.md) ([bản tiếng Việt](FINETUNING.vi.md)) —
+covers `--init_from`, plain-text and Q&A/instruction dataset formats, and
+the `block_size` constraint tied to a checkpoint's RoPE buffers.
+
+---
+
 ## Running the tests
 
 The `tests/` directory has automated pytest coverage for the model, tokenizer,

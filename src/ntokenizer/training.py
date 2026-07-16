@@ -95,6 +95,20 @@ def load_checkpoint(
     return ckpt["step"]
 
 
+def load_pretrained_weights(path: Path, model: GPT) -> None:
+    """
+    Load only model weights from another run's checkpoint (e.g. a base
+    pretraining checkpoint), leaving the optimizer fresh and the step
+    counter at 0. Used to start a fine-tuning run on a new dataset.
+    """
+    ckpt = torch.load(path, weights_only=True)
+    model.load_state_dict(ckpt["model"])
+    print(
+        f"  Init from      : {path}  "
+        f"(pretrained step {ckpt['step']}, val_loss {ckpt['val_loss']:.4f})"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Main training loop
 # ---------------------------------------------------------------------------
@@ -133,6 +147,9 @@ def train(cfg: TrainConfig) -> None:
     # ------------------------------------------------------------------
     # Print header
     # ------------------------------------------------------------------
+    ckpt_path   = out_dir / "ckpt.pt"
+    ckpt_exists = ckpt_path.exists()
+
     tokens_per_iter = cfg.batch_size * cfg.block_size
     print("=" * 55)
     print("  Tiny Vietnamese GPT — Training")
@@ -146,6 +163,8 @@ def train(cfg: TrainConfig) -> None:
     print(f"  max_iters      : {cfg.max_iters}")
     print(f"  lr             : {cfg.learning_rate} → {cfg.min_lr}  (cosine)")
     print(f"  out_dir        : {out_dir}")
+    if cfg.init_from and not ckpt_exists:
+        print(f"  init_from      : {cfg.init_from}")
     print()
 
     # ------------------------------------------------------------------
@@ -183,10 +202,12 @@ def train(cfg: TrainConfig) -> None:
     # Resume from checkpoint if one exists
     # ------------------------------------------------------------------
     start_step = 0
-    ckpt_path  = out_dir / "ckpt.pt"
-    if ckpt_path.exists():
+    if ckpt_exists:
         print()
         start_step = load_checkpoint(ckpt_path, model, optimizer)
+    elif cfg.init_from:
+        print()
+        load_pretrained_weights(Path(cfg.init_from), model)
 
     # ------------------------------------------------------------------
     # Training loop

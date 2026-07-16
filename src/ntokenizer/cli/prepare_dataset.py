@@ -29,15 +29,23 @@ def main() -> None:
     parser.add_argument("--model", type=str,
                         default=str(DEFAULT_TOKENIZER_MODEL),
                         help=f"Path to SentencePiece .model file (default: {DEFAULT_TOKENIZER_MODEL})")
+    parser.add_argument("--corpus", type=str,
+                        default=str(CORPUS_PATH),
+                        help=f"Path to corpus text file, one paragraph per line (default: {CORPUS_PATH})")
+    parser.add_argument("--output-dir", type=str,
+                        default=str(PROCESSED_DIR),
+                        help=f"Directory to write train.bin/val.bin/meta.json (default: {PROCESSED_DIR})")
     args = parser.parse_args()
 
-    MODEL = Path(args.model)
+    MODEL      = Path(args.model)
+    CORPUS     = Path(args.corpus)
+    OUTPUT_DIR = Path(args.output_dir)
 
     # ------------------------------------------------------------------
     # Guard: both input files must exist before we start
     # ------------------------------------------------------------------
     for path, hint in [
-        (CORPUS_PATH, "Run scripts/build_corpus.py first."),
+        (CORPUS, "Run scripts/build_corpus.py first."),
         (MODEL, "Run scripts/train_tokenizer_spm.py first."),
     ]:
         if not path.exists():
@@ -45,7 +53,7 @@ def main() -> None:
             print(f"       {hint}", file=sys.stderr)
             sys.exit(1)
 
-    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
     # Header
@@ -53,10 +61,10 @@ def main() -> None:
     print("=" * 55)
     print("  Dataset Preparation")
     print("=" * 55)
-    print(f"  Corpus        : {CORPUS_PATH}")
-    print(f"  Corpus size   : {CORPUS_PATH.stat().st_size / 1024**2:.0f} MB")
+    print(f"  Corpus        : {CORPUS}")
+    print(f"  Corpus size   : {CORPUS.stat().st_size / 1024**2:.0f} MB")
     print(f"  Tokenizer     : {MODEL}")
-    print(f"  Output dir    : {PROCESSED_DIR}")
+    print(f"  Output dir    : {OUTPUT_DIR}")
     print(f"  Train split   : {TRAIN_SPLIT:.0%} train / {1 - TRAIN_SPLIT:.0%} val")
     print()
 
@@ -75,7 +83,7 @@ def main() -> None:
     # ------------------------------------------------------------------
     print("Step 2 — Encode corpus")
     t_encode = time.monotonic()
-    all_ids = encode_corpus(CORPUS_PATH, sp, eos_id)
+    all_ids = encode_corpus(CORPUS, sp, eos_id)
     print(f"  Encoding wall time: {time.monotonic() - t_encode:.1f}s")
     print()
 
@@ -83,7 +91,7 @@ def main() -> None:
     # 3. Split and save binary files
     # ------------------------------------------------------------------
     print("Step 3 — Save train.bin / val.bin")
-    n_train, n_val = save_bins(all_ids, PROCESSED_DIR, TRAIN_SPLIT)
+    n_train, n_val = save_bins(all_ids, OUTPUT_DIR, TRAIN_SPLIT)
     print(f"  train tokens  : {n_train:,}")
     print(f"  val tokens    : {n_val:,}")
     print()
@@ -92,14 +100,14 @@ def main() -> None:
     # 4. Save metadata
     # ------------------------------------------------------------------
     print("Step 4 — Save meta.json")
-    save_meta(PROCESSED_DIR, vocab_size, n_train, n_val, MODEL)
+    save_meta(OUTPUT_DIR, vocab_size, n_train, n_val, MODEL)
     print()
 
     # ------------------------------------------------------------------
     # 5. Verify
     # ------------------------------------------------------------------
     print("Step 5 — Verify output")
-    verify_dataset(PROCESSED_DIR, sp)
+    verify_dataset(OUTPUT_DIR, sp)
     print()
 
     print("=" * 55)

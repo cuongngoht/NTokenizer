@@ -56,12 +56,15 @@ NTokenizer/
 │   ├── inspect_vocab.py                         # explore the vocabulary
 │   ├── prepare_dataset.py                       # encode corpus → binary files
 │   ├── train.py                                 # training loop (AdamW + cosine LR)
-│   └── sample.py                                # load checkpoint, generate text
+│   ├── sample.py                                # load checkpoint, generate text
+│   └── make_meta.py                             # write meta.json for externally-encoded bins
 │
 ├── tests/                                       # pytest suite (model, tokenizer, data pipeline)
 │
 ├── docs/
 │   ├── DEVELOPMENT.md                           # command-by-command build pipeline
+│   ├── FINETUNING.md                            # fine-tune a pretrained checkpoint
+│   ├── FINETUNING.vi.md                         # bản tiếng Việt
 │   ├── model_architecture.md                    # deep dive into the model
 │   └── model_architecture.vi.md                 # bản tiếng Việt
 │

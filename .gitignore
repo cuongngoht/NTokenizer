@@ -222,3 +222,5 @@ __marimo__/
 /artifacts/tokenizer/*
 !/artifacts/tokenizer/viwiki_bpe_8k.model
 !/artifacts/tokenizer/viwiki_bpe_8k.vocab
+# Added by Nexus AI Code
+.nexus/

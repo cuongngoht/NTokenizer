@@ -5,6 +5,13 @@ Usage:
     python scripts/train.py
     python scripts/train.py --max_iters 5000 --batch_size 32
     python scripts/train.py --device cpu
+
+    # Fine-tune a pretrained checkpoint on a new dataset (new out_dir/data_dir):
+    python scripts/train.py \
+        --data_dir data/processed_history \
+        --out_dir artifacts/checkpoints/gpt_8k_history_finetune \
+        --init_from artifacts/checkpoints/gpt_8k_research/ckpt.pt \
+        --max_iters 500 --learning_rate 3e-5 --min_lr 3e-6 --warmup_iters 20
 """
 
 import argparse
@@ -35,6 +42,9 @@ def main() -> None:
     parser.add_argument("--device",          type=str,   default="")
     parser.add_argument("--out_dir",         type=str,   default=str(CHECKPOINTS_DIR))
     parser.add_argument("--data_dir",        type=str,   default=str(PROCESSED_DIR))
+    parser.add_argument("--init_from",       type=str,   default="",
+                        help="Path to a pretrained ckpt.pt to fine-tune from "
+                             "(ignored if out_dir already has a ckpt.pt to resume)")
     args = parser.parse_args()
 
     cfg = TrainConfig(**vars(args))
