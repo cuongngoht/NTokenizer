@@ -34,10 +34,12 @@ python scripts/sample.py  # generate text from a checkpoint
 
 ## Conventions
 
-- **Language:** code, comments, commit messages and `CLAUDE.md` are in
-  English. User-facing docs are bilingual (`.md` English + `.vi.md`
-  Vietnamese) where both exist; BMAD outputs default to Vietnamese unless a
-  session asks for English.
+- **Language:** every document is written in 100% English: code, comments,
+  commit messages, `CLAUDE.md`, and all BMAD outputs (research reports,
+  brainstorms, epics). Only the chat with the user is in Vietnamese
+  (`communication_language = Vietnamese`, `document_output_language =
+  English` in `_bmad/config.toml`). Guides in `docs/` may keep a Vietnamese
+  twin (`X.vi.md`) next to the English original `X.md`.
 - Keep `scripts/*.py` thin; put logic in `src/ntokenizer/`.
 - The tokenizer used for training and sampling must match the checkpoint
   (see `docs/FINETUNING.md`).

@@ -14,7 +14,7 @@
 user_name = "BMad"
 communication_language = "English"
 project_name = "NTokenizer"
-document_output_language = "Vietnamese"
+document_output_language = "English"
 output_folder = "_bmad-output"
 
 [modules.bmm]
