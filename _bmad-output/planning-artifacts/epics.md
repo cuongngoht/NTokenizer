@@ -50,6 +50,8 @@ on the real machine (Epic 4) rather than promised in advance.
 **Tokenizer**
 - FR9: A tool measures fertility (tokens per word) and compression ratio on Vietnamese text for any tokenizer.
 - FR10: Tokenizers with different vocab sizes (16k/20k/32k) can be trained and compared on the new data mix.
+- FR29: A tool counts how many tokens any input prompt uses with a given tokenizer (exactly as the model encodes it) and reports whether it fits the context window.
+- FR30: The tokenizer is trained on the full large corpus by default: every line of one or more input files (e.g. Wikipedia + FineWeb-2), without silently dropping long lines, with an explicit cap only when RAM requires it.
 
 **Training**
 - FR11: An option in `GPTConfig` ties the input and output embeddings (weight tying).
@@ -115,6 +117,8 @@ FR7: Epic 2 - Loading a FineWeb-2 subset
 FR8: Epic 2 - Source mixing and provenance recording
 FR9: Epic 3 - Measuring fertility and compression ratio
 FR10: Epic 3 - Comparing vocab sizes
+FR29: Epic 3 - Counting the tokens of a prompt
+FR30: Epic 3 - Training the tokenizer on the full large corpus
 FR11: Epic 4 - Weight tying
 FR12: Epic 4 - Depth-based preset
 FR13: Epic 4 - Token budget planning (Story 4.4)
@@ -146,7 +150,7 @@ The project owner has a training dataset made of Wikipedia and a portion of Fine
 
 ### Epic 3: A tokenizer optimized for Vietnamese
 The project owner chooses the vocab size based on measurements (fertility, compression, BPB) instead of guessing.
-**FRs covered:** FR9, FR10
+**FRs covered:** FR9, FR10, FR29, FR30
 
 ### Epic 4: A compact training recipe with real measurements
 The project owner can plan training (size, tokens, time) that fits their machine, and can use architecture improvements that have been validated.
@@ -316,7 +320,55 @@ So that I know where the model learned from and can meet license obligations.
 
 The project owner chooses the vocab size based on measurements (fertility, compression, BPB) instead of guessing.
 
-### Story 3.1: Tool to measure fertility and compression ratio
+### Story 3.1: Count the tokens of a prompt
+
+_Status: done (`scripts/count_tokens.py`, `ntokenizer.tokenizer.count_tokens`, `tests/test_count_tokens.py`)._
+
+As a project owner,
+I want to pass any prompt through the tokenizer and see how many tokens it uses,
+So that I know how much of the context window a prompt occupies and how efficiently the tokenizer splits Vietnamese.
+
+**Acceptance Criteria:**
+
+**Given** a trained tokenizer and a prompt passed as an argument, with `--file`, or on stdin
+**When** I run `scripts/count_tokens.py "<prompt>"`
+**Then** the script prints the token count, characters, words, tokens per word and bytes per token
+**And** the token count equals the length of `encode_prompt()` for the same text, i.e. exactly what the model receives.
+
+**Given** `--block-size N`
+**When** the prompt is counted
+**Then** the script reports whether it fits and how many tokens are left for generation, or by how much it exceeds the context
+**And** `--show-pieces` prints every token piece.
+
+**Given** characters the tokenizer never saw
+**When** counted
+**Then** byte-fallback pieces are counted as tokens and unknown tokens are reported separately.
+
+### Story 3.2: Train the tokenizer on the full large corpus
+
+_Status: done (`scripts/train_tokenizer_spm.py`, `tests/test_train_tokenizer.py`)._
+
+As a project owner,
+I want the tokenizer to learn from all of my training data, including several corpora at once,
+So that its vocabulary reflects the large data the model is trained on, not a small sample of it.
+
+**Acceptance Criteria:**
+
+**Given** one or more corpus files
+**When** I run `scripts/train_tokenizer_spm.py --input wiki.txt fineweb2_vi.txt`
+**Then** SentencePiece trains on every line of every file by default (`--max_sentences 0`), and the vocab size is auto-picked from the total size
+**And** the script prints the total size, line count and the fraction of the corpus used, warning when it is below 50%.
+
+**Given** paragraphs longer than SentencePiece's 4,192-byte default
+**When** training
+**Then** they are kept (`--max_sentence_length` defaults to 16,384 bytes).
+
+**Given** more than 10 million lines are used
+**When** training
+**Then** SentencePiece's large-corpus mode is switched on automatically
+**And** `--max_sentences N` caps the sample on machines without enough RAM.
+
+### Story 3.3: Tool to measure fertility and compression ratio
 
 As a project owner,
 I want to measure the number of tokens per word and the number of bytes per token of a tokenizer,
@@ -325,7 +377,7 @@ So that I compare tokenizers using numbers.
 **Acceptance Criteria:**
 
 **Given** a SentencePiece tokenizer and a Vietnamese text file
-**When** I run `scripts/measure_tokenizer.py --model <spm> --text <file>`
+**When** I run `scripts/measure_tokenizer.py --model <spm> --text <file>` (built on `count_tokens()` from Story 3.1)
 **Then** the script prints fertility (tokens/word, words split on whitespace), bytes/token, and the fraction of tokens that consist of a single syllable
 **And** it works with several `--model` arguments at once to print a comparison table.
 
@@ -333,7 +385,7 @@ So that I compare tokenizers using numbers.
 **When** measuring
 **Then** the script does not fail and reports the number of skipped lines.
 
-### Story 3.2: Train and compare vocab sizes
+### Story 3.4: Train and compare vocab sizes
 
 As a project owner,
 I want to train 16k, 20k, and 32k tokenizers on the same data mix and compare them,
@@ -350,7 +402,7 @@ So that I choose the vocab size on solid grounds.
 **When** I decide on a size
 **Then** the decision and the figures are recorded in `docs/tokenizer_choice.md`, together with a warning that old checkpoints using a different tokenizer will not be compatible (NFR5).
 
-### Story 3.3: Compare models by BPB across tokenizers
+### Story 3.5: Compare models by BPB across tokenizers
 
 As a project owner,
 I want to quickly train a small model with each tokenizer and compare BPB,
@@ -358,7 +410,7 @@ So that the vocab size is chosen by real quality and not just fertility.
 
 **Acceptance Criteria:**
 
-**Given** the three tokenizers from Story 3.2 and a fixed small model configuration
+**Given** the three tokenizers from Story 3.4 and a fixed small model configuration
 **When** I run `scripts/compare_tokenizers.sh` (short training, same number of data bytes)
 **Then** each model is evaluated with `eval_bpb.py` and the results are written to `results.csv`
 **And** the final table ranks the tokenizers by BPB.

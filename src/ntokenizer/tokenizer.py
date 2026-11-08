@@ -1,6 +1,7 @@
 """Thin helpers around the SentencePiece tokenizer used throughout the pipeline."""
 
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import sentencepiece as spm
@@ -58,16 +59,66 @@ _VOCAB_SIZE_THRESHOLDS = [
 _VOCAB_SIZE_ABOVE_MAX_THRESHOLD = 48_000
 
 
-def estimate_vocab_size(corpus_path: Path) -> int:
-    """
-    Pick a BPE vocab size from the corpus file size, so you don't have to
-    guess a fixed number regardless of how much data you actually have.
-    """
-    size_mb = corpus_path.stat().st_size / (1024 ** 2)
+def estimate_vocab_size_from_mb(size_mb: float) -> int:
+    """Pick a BPE vocab size for a corpus of `size_mb` megabytes."""
     for threshold_mb, vocab_size in _VOCAB_SIZE_THRESHOLDS:
         if size_mb < threshold_mb:
             return vocab_size
     return _VOCAB_SIZE_ABOVE_MAX_THRESHOLD
+
+
+def estimate_vocab_size(corpus_path: Path | list[Path]) -> int:
+    """
+    Pick a BPE vocab size from the corpus size, so you don't have to guess a
+    fixed number regardless of how much data you actually have. Accepts one
+    file or a list of files (their sizes are summed).
+    """
+    paths = corpus_path if isinstance(corpus_path, list) else [corpus_path]
+    size_mb = sum(p.stat().st_size for p in paths) / (1024 ** 2)
+    return estimate_vocab_size_from_mb(size_mb)
+
+
+@dataclass
+class TokenStats:
+    """How a piece of text is split by a tokenizer."""
+
+    n_tokens: int
+    n_chars: int
+    n_bytes: int
+    n_words: int
+    n_unk: int
+    pieces: list[str]
+
+    @property
+    def tokens_per_word(self) -> float:
+        """Fertility: average tokens per whitespace-separated word (lower is better)."""
+        return self.n_tokens / self.n_words if self.n_words else 0.0
+
+    @property
+    def bytes_per_token(self) -> float:
+        """Compression: average UTF-8 bytes covered by one token (higher is better)."""
+        return self.n_bytes / self.n_tokens if self.n_tokens else 0.0
+
+
+def count_tokens(sp: spm.SentencePieceProcessor, text: str) -> TokenStats:
+    """
+    Tokenize `text` exactly as a prompt is encoded for the model and report
+    the token count plus fertility/compression statistics.
+
+    Byte-fallback pieces (e.g. <0xE1>) count as tokens: they are real
+    positions in the model's context window.
+    """
+    ids = sp.encode(text, out_type=int)
+    pieces = [sp.id_to_piece(i) for i in ids]
+    unk_id = sp.unk_id()
+    return TokenStats(
+        n_tokens=len(ids),
+        n_chars=len(text),
+        n_bytes=len(text.encode("utf-8")),
+        n_words=len(text.split()),
+        n_unk=sum(1 for i in ids if i == unk_id),
+        pieces=pieces,
+    )
 
 
 def load_vocab_tsv(vocab_path: Path) -> list[tuple[str, float]]:
