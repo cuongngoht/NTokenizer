@@ -1,0 +1,50 @@
+{
+  "today": "2026-11-08",
+  "claims": [
+    {
+      "claim": "Art.7(5) / Decree 134 legal status",
+      "class": "law",
+      "pub_date": "2026-04",
+      "recheck": "2026-10-01",
+      "stale": true
+    },
+    {
+      "claim": "Publisher ToS and robots.txt",
+      "class": "terms",
+      "pub_date": "2026-01",
+      "recheck": "2026-07-01",
+      "stale": true
+    },
+    {
+      "claim": "BKAINewsCorpus availability/licence",
+      "class": "landscape",
+      "pub_date": "2023-11",
+      "recheck": "2024-02-01",
+      "stale": true
+    },
+    {
+      "claim": "Wikimedia Enterprise dump access",
+      "class": "version",
+      "pub_date": "2025-03",
+      "recheck": "2025-04-01",
+      "stale": true
+    },
+    {
+      "claim": "trafilatura version/benchmark",
+      "class": "version",
+      "pub_date": "2024-01",
+      "recheck": "2024-02-01",
+      "stale": true
+    },
+    {
+      "claim": "Mixing evidence (SmolLM2, Pile)",
+      "class": "patterns",
+      "pub_date": "2025-02",
+      "recheck": "2027-02-01",
+      "stale": false
+    }
+  ],
+  "stale_count": 5,
+  "earliest_recheck": "2024-02-01",
+  "no_window_classes": []
+}

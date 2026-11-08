@@ -8,6 +8,7 @@ inputDocuments:
   - docs/DEVELOPMENT.md
   - docs/FINETUNING.md
   - docs/why_llms_are_accurate.md
+  - _bmad-output/planning-artifacts/research/technical-vietnamese-news-and-wikipedia-json-corpu-2026-11-08/research.md
 ---
 
 # NTokenizer - Epic Breakdown
@@ -53,6 +54,16 @@ on the real machine (Epic 4) rather than promised in advance.
 - FR29: A tool counts how many tokens any input prompt uses with a given tokenizer (exactly as the model encodes it) and reports whether it fits the context window.
 - FR30: The tokenizer is trained on the full large corpus by default: every line of one or more input files (e.g. Wikipedia + FineWeb-2), without silently dropping long lines, with an explicit cap only when RAM requires it.
 
+**Vietnamese news + Wikipedia corpus (Markdown)**
+- FR31: Every collected document (news or Wikipedia) is stored as a Markdown file with YAML front matter (`source`, `url`, `title`, `published`, `retrieved`, `license`, `sha1`) and listed in a JSONL manifest.
+- FR32: Vietnamese Wikipedia is exported from its JSON form (WikiExtractor `--json` or the HF `wikimedia/wikipedia` parquet) into the Markdown document schema with CC BY-SA 4.0 attribution.
+- FR33: Optionally, Wikipedia is converted from Wikimedia Enterprise HTML (NDJSON) to Markdown, keeping headings, lists and tables.
+- FR34: Existing Vietnamese news corpora (BKAINewsCorpus, binhvq mirrors, VietNews) are ingested into the document schema and flagged `license: unknown`.
+- FR35: Articles from chosen Vietnamese news domains are fetched from Common Crawl captures via the CDX/columnar index and extracted to Markdown with trafilatura.
+- FR36: An optional polite live crawler collects recent articles only from sitemaps/RSS of sites that allow it (robots.txt via Protego, rate limit, identifying user agent, per-site denylist).
+- FR37: A corpus builder deduplicates across all sources and exports the training corpus as either Markdown or plain text, with a statistics report per source.
+- FR38: A mixing experiment compares news:Wikipedia ratios and Markdown vs plain text by bits-per-byte.
+
 **Training**
 - FR11: An option in `GPTConfig` ties the input and output embeddings (weight tying).
 - FR12: Model size can be set from a single depth parameter (a deep-and-thin preset), instead of hand-tuning many coefficients.
@@ -91,6 +102,8 @@ on the real machine (Epic 4) rather than promised in advance.
 - NFR6: Every data source must have a record of its origin, license, and download date.
 - NFR7: Tools must run on CPU, CUDA, and MPS; heavy features must have a small mode for trying them out.
 - NFR8: Wording in documentation and results describes "representation/computation at small scale" and does not claim the model "understands".
+- NFR9: Collected article text is never committed or redistributed; only code, manifests (URL, date, hash) and statistics are versioned.
+- NFR10: News collection is limited to local, non-commercial research use, matching the conditions reported for IP Law Art. 7(5) and Decree 134/2026 (official texts still to be verified).
 
 ### Additional Requirements
 
@@ -119,6 +132,14 @@ FR9: Epic 3 - Measuring fertility and compression ratio
 FR10: Epic 3 - Comparing vocab sizes
 FR29: Epic 3 - Counting the tokens of a prompt
 FR30: Epic 3 - Training the tokenizer on the full large corpus
+FR31: Epic 9 - Markdown document schema and manifest
+FR32: Epic 9 - Wikipedia JSON to Markdown
+FR33: Epic 9 - Wikipedia Enterprise HTML to Markdown (optional)
+FR34: Epic 9 - Ingesting existing news corpora
+FR35: Epic 9 - News from Common Crawl
+FR36: Epic 9 - Polite live crawler (optional)
+FR37: Epic 9 - Cross-source dedup and corpus export
+FR38: Epic 9 - Mixing and format experiment
 FR11: Epic 4 - Weight tying
 FR12: Epic 4 - Depth-based preset
 FR13: Epic 4 - Token budget planning (Story 4.4)
@@ -171,6 +192,10 @@ The project owner reproduces, at small scale, the phenomena described in the res
 ### Epic 8: Publication and explanation
 An outside reader can read a clear model card about the data and licenses, and an English explainer tied to runnable experiments.
 **FRs covered:** FR27, FR28
+
+### Epic 9: A Vietnamese news + Wikipedia corpus in Markdown
+The project owner assembles a large, clean, deduplicated Vietnamese training corpus from Wikipedia (JSON) and online news, stored as Markdown with provenance, collected within the legal limits found by research, and never redistributed. Recommended right after Epic 2, whose normalization and dedup it reuses.
+**FRs covered:** FR31, FR32, FR33, FR34, FR35, FR36, FR37, FR38
 
 ## Epic 1: Knowing whether the model is getting better or worse (evaluation suite)
 
@@ -741,3 +766,160 @@ So that I understand the mechanism and can verify it myself.
 **Given** the article contains analogies (compression, weather forecasting, detective)
 **When** used
 **Then** each analogy states explicitly where it is similar and where it differs, and is not used as a substitute for evidence.
+
+## Epic 9: A Vietnamese news + Wikipedia corpus in Markdown
+
+The project owner assembles a large, clean, deduplicated Vietnamese training corpus from Wikipedia (JSON) and online news, stored as Markdown with provenance, collected within the legal limits found by research, and never redistributed.
+
+Research: `_bmad-output/planning-artifacts/research/technical-vietnamese-news-and-wikipedia-json-corpu-2026-11-08/research.md` (recommendations N1–N8). Re-check the official texts of IP Law Art. 7(5) and Decree 134/2026 before starting Stories 9.5 and 9.6.
+
+### Story 9.1: Markdown document schema, manifest and no-redistribution guard
+
+As a project owner,
+I want one document format for every source, with provenance in front matter and a manifest,
+So that every training document can be traced, filtered by licence, and kept out of git.
+
+**Acceptance Criteria:**
+
+**Given** a document with text and metadata
+**When** I call `write_document(doc, root)` in `src/ntokenizer/corpus_docs.py`
+**Then** a Markdown file is written under `data/corpus/<source>/` with YAML front matter `source`, `url`, `title`, `published`, `retrieved`, `license`, `sha1` (of the body), and one line is appended to `data/corpus/manifest.jsonl`
+**And** writing the same body twice does not create a duplicate (same `sha1`).
+
+**Given** the repository
+**When** tests run
+**Then** a test asserts that `data/` is gitignored and that `git ls-files data/corpus` is empty (NFR9)
+**And** `read_documents(root, license=...)` yields documents filtered by licence.
+
+### Story 9.2: Export Wikipedia JSON to Markdown documents
+
+As a project owner,
+I want Vietnamese Wikipedia exported from its JSON form into the document schema,
+So that Wikipedia joins the corpus with correct CC BY-SA 4.0 attribution.
+
+**Acceptance Criteria:**
+
+**Given** WikiExtractor `--json` output (fields `id`, `revid`, `url`, `title`, `text`) as produced by the existing Step 1
+**When** I run `scripts/wiki_to_markdown.py --input data/interim/extracted --out data/corpus`
+**Then** each article becomes one Markdown document with `# <title>`, `source: viwiki`, `license: CC BY-SA 4.0`, its `url` and `revid`
+**And** the script prints article, skipped (empty or below `--min-chars`) and written counts.
+
+**Given** the HF `wikimedia/wikipedia` parquet files (`20231101.vi`) downloaded locally
+**When** I run the same script with `--format hf-parquet`
+**Then** the same schema is produced
+**And** a test covers both input formats with a two-article fixture.
+
+### Story 9.3: Wikipedia Enterprise HTML to Markdown with tables (optional)
+
+As a project owner,
+I want Wikipedia converted from Enterprise HTML so headings, lists and tables survive,
+So that structured knowledge (tables, infoboxes) is not lost.
+
+**Acceptance Criteria:**
+
+**Given** a Wikimedia Enterprise NDJSON snapshot obtained with a free account (path documented, no credentials in the repo)
+**When** I run `scripts/wiki_enterprise_to_markdown.py --input <ndjson.tar.gz>`
+**Then** each record's `article_body.html` is converted to GitHub-flavoured Markdown preserving headings, lists and tables, written with the Story 9.1 schema
+**And** a fixture test checks that a two-row HTML table becomes a Markdown table.
+
+**Given** no snapshot is available
+**When** the corpus is built
+**Then** Story 9.2 output is used and this story is skipped without errors.
+
+### Story 9.4: Ingest existing Vietnamese news corpora
+
+As a project owner,
+I want the large existing news corpora converted into my document schema,
+So that I get tens of millions of news articles without crawling.
+
+**Acceptance Criteria:**
+
+**Given** a locally downloaded copy of BKAINewsCorpus, a binhvq mirror or VietNews
+**When** I run `scripts/ingest_news_corpus.py --dataset bkai|binhvq|vietnews --input <path> --limit N`
+**Then** articles are written in the Story 9.1 schema with `source` set to the dataset name and `license: unknown`
+**And** the script reads the input as a stream (constant memory) and reports written and skipped counts.
+
+**Given** these sources are used
+**When** the corpus is built
+**Then** `data/corpus/SOURCES.md` (generated, gitignored) records the dataset, mirror URL, download date and "licence unverified — local research use only".
+
+### Story 9.5: News from Common Crawl captures
+
+As a project owner,
+I want articles from chosen Vietnamese news domains pulled from Common Crawl instead of crawling the sites live,
+So that I collect news without loading publishers' servers or bypassing their controls.
+
+**Acceptance Criteria:**
+
+**Given** a domain list (e.g. `vnexpress.net`, `tuoitre.vn`) and a Common Crawl crawl id
+**When** I run `scripts/cc_news.py --domains domains.txt --crawl CC-MAIN-YYYY-WW --limit N`
+**Then** the script queries the CDX index (`matchType=domain`, `filter=status:200`, HTML only), fetches each record by `warc_filename`/offset/length, extracts the main text with trafilatura (`output_format="markdown"`, `favour_precision=True`) and writes the Story 9.1 schema with `retrieved` set to the capture date
+**And** requests are rate-limited and resumable (URLs already in the manifest are skipped).
+
+**Given** an extraction shorter than `--min-chars`
+**When** processing
+**Then** the record is skipped and counted, not written.
+
+### Story 9.6: Polite live crawler for recent articles (optional)
+
+As a project owner,
+I want to collect recent articles only from sites that allow it,
+So that the corpus stays current without breaking site rules.
+
+**Acceptance Criteria:**
+
+**Given** a site configuration (sitemap or RSS URL, max requests per second, enabled flag)
+**When** I run `scripts/crawl_news.py --site <name>`
+**Then** URLs come only from the sitemap/RSS, each fetch is checked with Protego against the site's robots.txt for the crawler's user agent, `Crawl-delay` is honoured, and the user agent identifies the project with a contact URL
+**And** sites in `configs/crawl_denylist.txt` (e.g. sites whose terms forbid copying) are refused with a clear message.
+
+**Given** a robots.txt that disallows the path or the user agent
+**When** crawling
+**Then** the URL is skipped and logged, and a test covers allow and disallow cases with a fixture robots.txt.
+
+### Story 9.7: Cross-source dedup and corpus export
+
+As a project owner,
+I want all sources deduplicated together and exported as one training corpus,
+So that syndicated news and repeated text do not dominate training.
+
+**Acceptance Criteria:**
+
+**Given** documents from Stories 9.2–9.6
+**When** I run `scripts/build_corpus_v2.py --format markdown|plain --out data/interim/corpus_v2.txt`
+**Then** documents pass `normalize_vi` (Story 2.1) and MinHash near-duplicate removal (Story 2.2) across all sources, and the corpus is written one document per line (Markdown kept, or stripped to plain text, depending on `--format`)
+**And** a report lists, per source, documents in/out, tokens (via `count_tokens`) and duplicates removed.
+
+**Given** the exported corpus
+**When** I train the tokenizer (Story 3.2) and prepare the dataset (Story 2.4)
+**Then** both accept it without changes, and `meta.json` `sources` lists each source with its licence.
+
+### Story 9.8: Mixing and format experiment
+
+As a project owner,
+I want to compare news:Wikipedia ratios and Markdown vs plain text by measurement,
+So that the final mix and format are chosen on evidence, since research found no source for either.
+
+**Acceptance Criteria:**
+
+**Given** the corpus from Story 9.7 and the BPB evaluation from Epic 1
+**When** I run `scripts/mix_experiment.sh` with at least three ratios (e.g. 30/70, 50/50, 70/30 wiki:news, Wikipedia upsampled to at most 3 epochs) and both formats, using the same small model and token budget
+**Then** each run's BPB on a fixed held-out set (news + wiki) is recorded in `results.csv`
+**And** the chosen ratio and format, with the numbers, are written to `docs/data_mix.md`.
+
+### Story 9.9: Data card and legal note
+
+As a project owner,
+I want a data card that states what was collected, under which rules, and what is not shared,
+So that anyone using the model knows its data provenance and limits.
+
+**Acceptance Criteria:**
+
+**Given** the manifest and `SOURCES.md`
+**When** I run `scripts/make_data_card.py`
+**Then** `docs/DATA_CARD.md` lists every source, document and token counts, licence, collection method (dataset, Common Crawl, live crawl), and the date range
+**And** a legal section states that news text is used locally for non-commercial research only, is not redistributed, cites IP Law Art. 7(5) and Decree 134/2026 as reported by secondary sources, and says the official texts must be checked.
+
+**Given** a source without a licence field
+**When** the card is generated
+**Then** it is listed as "licence unknown" rather than omitted.
