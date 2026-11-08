@@ -71,8 +71,12 @@ Hai điểm quan trọng thường bị hiểu sai:
 Shannon (1948, 1951) đã chỉ ra: một mô hình dự đoán tốt có thể dùng để **nén**
 dữ liệu (arithmetic coding), và độ dài mã tối ưu chính bằng cross-entropy.
 Delétang et al. (2023, *Language Modeling Is Compression*) cho thấy LLM là
-bộ nén tổng quát cực mạnh — nén cả ảnh và âm thanh tốt hơn PNG/FLAC dù chỉ
-huấn luyện trên văn bản.
+bộ nén tổng quát cực mạnh: Chinchilla 70B nén ảnh ImageNet còn 43,4% (PNG
+58,5%) và âm thanh còn 16,4% (FLAC 30,3%) dù chỉ huấn luyện chủ yếu trên văn
+bản. **Lưu ý:** đây là tỷ lệ *không tính kích thước model*; tính cả hàng trăm
+GB trọng số thì LLM nén kém hơn nhiều. Huang et al. (COLM 2024) còn thấy trên
+~30 LLM, điểm benchmark tương quan gần tuyến tính với hiệu quả nén. Đó là
+tương quan, không phải chứng minh.
 
 Hệ quả: để giảm loss, model phải tìm ra **các quy luật** giải thích dữ liệu.
 Ghi nhớ từng câu là cách nén tồi; hiểu quy luật (ngữ pháp, phép cộng, quan hệ
@@ -112,13 +116,14 @@ ra và nhìn thấy** các cấu trúc này (lĩnh vực *mechanistic interpreta
 
 | Phát hiện | Nghiên cứu | Ý nghĩa |
 |---|---|---|
-| **Mô hình thế giới**: GPT chỉ học chuỗi nước đi Othello (không thấy bàn cờ) nhưng bên trong có biểu diễn trạng thái bàn cờ; can thiệp vào biểu diễn đó làm thay đổi nước đi dự đoán. | Li et al. 2023 (*Othello-GPT*); Nanda et al. 2023 (biểu diễn tuyến tính) | Dự đoán chuỗi ⇒ tự xây dựng trạng thái ẩn của "thế giới". |
+| **Mô hình thế giới**: GPT chỉ học chuỗi nước đi Othello (không thấy bàn cờ) nhưng bên trong có biểu diễn trạng thái bàn cờ; can thiệp vào biểu diễn đó làm thay đổi nước đi dự đoán. Bài gốc cần probe *phi tuyến*; biểu diễn chỉ tuyến tính khi mã hoá ô theo "của tôi / của đối thủ". Model cờ vua cũng có bàn cờ đọc được bằng probe tuyến tính (~99,6%). | Li et al. (ICLR 2023); Nanda, Lee & Wattenberg (BlackboxNLP 2023); Karvonen 2024 | Dự đoán chuỗi ⇒ tự xây dựng trạng thái ẩn của "thế giới". **Phản đề:** model có thể qua probe mà world model vẫn không nhất quán (Vafa et al., NeurIPS 2024). |
 | **Thuật toán thật**: transformer học cộng modulo dùng biến đổi Fourier + đồng nhất thức lượng giác, có thể đọc ra từ trọng số. | Nanda et al. 2023 (*Progress measures for grokking*) | Model không chỉ nhớ bảng kết quả; nó học **thuật toán tổng quát**. |
-| **Grokking**: ban đầu model nhớ tập train (test kém), huấn luyện tiếp thì đột ngột tổng quát hoá. | Power et al. 2022 | Regularization + gradient ưu tiên lời giải "gọn" (thuật toán) hơn lời giải "nhớ". |
+| **Grokking**: ban đầu model nhớ tập train (test kém), huấn luyện tiếp thì đột ngột tổng quát hoá. | Power et al. 2022 (workshop ICLR 2021 + preprint) | Regularization + gradient ưu tiên lời giải "gọn" (thuật toán) hơn lời giải "nhớ". |
 | **Không gian & thời gian**: Llama-2 có các hướng tuyến tính mã hoá kinh độ/vĩ độ của địa danh và năm của sự kiện. | Gurnee & Tegmark 2023 | Kiến thức được tổ chức có cấu trúc, không phải danh sách rời rạc. |
-| **Induction heads**: mạch attention thực hiện "thấy A B trước đó, giờ thấy A → đoán B"; là cơ chế chính của in-context learning. | Olsson et al. 2022 | Giải thích vì sao model học được từ ví dụ trong prompt. |
+| **Induction heads**: mạch attention thực hiện "thấy A B trước đó, giờ thấy A → đoán B"; là cơ chế chính của in-context learning. | Olsson et al. 2022 (preprint) | Giải thích vì sao model học được từ ví dụ trong prompt. Bằng chứng nhân quả chỉ có ở model nhỏ; ở model lớn là tương quan. |
 | **Sự kiện nằm trong MLP**: lớp feed-forward hoạt động như bộ nhớ key–value; có thể định vị và sửa một sự kiện cụ thể. | Geva et al. 2021; Meng et al. 2022 (*ROME*) | Tương ứng với `MLP`/SwiGLU trong `model.py`. |
-| **Suy luận nhiều bước nội bộ & lập kế hoạch**: Claude 3.5 Haiku tính "thủ đô của bang chứa Dallas" qua bước trung gian "Texas" bên trong; khi làm thơ, chọn từ vần **trước** rồi viết câu dẫn tới nó. | Anthropic 2025 (*On the Biology of a Large Language Model*) | Dù xuất từng token, bên trong có "nhìn trước" nhiều token. |
+| **Suy luận nhiều bước nội bộ & lập kế hoạch**: Claude 3.5 Haiku tính "thủ đô của bang chứa Dallas" qua bước trung gian "Texas" bên trong (thay Texas bằng California thì ra Sacramento); khi làm thơ, chọn từ vần **trước** rồi viết câu dẫn tới nó. | Anthropic 2025 (*On the Biology of a Large Language Model*; chưa bình duyệt, một model) | Dù xuất từng token, bên trong có "nhìn trước" nhiều token. Phương pháp chỉ bắt được *một phần* tính toán. |
+| **Model không biết mình tính thế nào**: với 36+59, Claude 3.5 Haiku chạy song song một đường ước lượng độ lớn và một đường tính chữ số cuối; nhưng khi được hỏi, nó mô tả cách "nhớ 1" trong sách giáo khoa. | Anthropic 2025 | Lời model tự giải thích không phải bằng chứng về cơ chế bên trong. |
 | **Superposition**: model nén nhiều khái niệm hơn số chiều bằng cách xếp chồng các đặc trưng gần trực giao. | Elhage et al. 2022 | Giải thích vì sao vài tỷ tham số chứa được lượng tri thức khổng lồ. |
 
 **Kết luận phần 4:** "Dự đoán token" là lớp vỏ ngoài. Bên trong là các mạch
@@ -147,7 +152,9 @@ như sau (minh hoạ):
   hay sinh lỗi).
 - **Calibration**: model pretrain thường "biết mình biết gì" — xác suất nó
   gán tương quan tốt với tỷ lệ đúng thực tế (Kadavath et al. 2022). Khi
-  phân phối phẳng, đó là tín hiệu model không chắc.
+  phân phối phẳng, đó là tín hiệu model không chắc. Lưu ý: báo cáo GPT-4 cho
+  thấy base model calibrate tốt nhưng RLHF *làm giảm* calibration, nên xác
+  suất của model chat không còn đáng tin bằng.
 
 Nói cách khác: *ngẫu nhiên* chỉ xuất hiện ở bước lấy mẫu, và với kiến thức
 vững thì phân phối gần như là một đỉnh duy nhất.
@@ -158,14 +165,19 @@ vững thì phân phối gần như là một đỉnh duy nhất.
 
 - **Scaling laws** (Kaplan et al. 2020; Hoffmann et al. 2022 — *Chinchilla*):
   loss giảm theo luật luỹ thừa khi tăng tham số, dữ liệu, compute. Chinchilla
-  gợi ý ~20 token dữ liệu cho mỗi tham số là cân bằng tối ưu về compute.
+  dùng ~20 token dữ liệu cho mỗi tham số (70B tham số, 1,4T token); đây là
+  tỷ lệ suy ra từ bài báo, được Epoch AI tái lập (2024). Thực tế ngày nay cố
+  ý train *vượt* tỷ lệ này để model nhỏ hơn, rẻ hơn khi suy luận (Sardana et
+  al., ICML 2024).
 - Mỗi mức giảm loss nhỏ tương ứng với việc mô hình hoá thêm một lớp cấu trúc:
   đầu tiên là tần suất ký tự → từ → ngữ pháp → sự kiện phổ biến → sự kiện
   hiếm → suy luận nhiều bước.
 - **"Emergent abilities"** (Wei et al. 2022): một số năng lực có vẻ xuất hiện
   đột ngột ở quy mô lớn. Schaeffer et al. 2023 chỉ ra phần lớn "đột ngột" là
   do thước đo (exact-match) — loss thực ra giảm mượt, nhưng tác vụ chỉ được
-  tính "đúng" khi mọi token đều đúng.
+  tính "đúng" khi mọi token đều đúng. Du et al. (NeurIPS 2024) phản bác một
+  phần: xét theo pre-training loss, một số năng lực chỉ xuất hiện khi loss vượt
+  ngưỡng, kể cả với thước đo liên tục. Tranh luận vẫn còn mở.
 
 Với repo này (model vài chục triệu tham số, train trên Wikipedia tiếng Việt),
 bạn sẽ thấy model sinh văn bản trôi chảy, đúng ngữ pháp nhưng **thường sai
@@ -185,11 +197,14 @@ chuyển phân phối** về phía câu trả lời đúng và hữu ích:
    [`FINETUNING.vi.md`](FINETUNING.vi.md), Cách 2 và Cách 3 của repo này.
 2. **RLHF / RLAIF** (Ouyang et al. 2022 — *InstructGPT*): tối ưu theo điểm
    thưởng từ đánh giá của người/AI, không chỉ bắt chước văn bản.
-3. **RL với phần thưởng kiểm chứng được** (RLVR — ví dụ DeepSeek-R1, 2025;
-   các "reasoning model"): thưởng khi đáp án toán đúng, code qua test. Đây là
-   nơi model học **tự kiểm tra, quay lui, sửa lỗi** trong chuỗi suy nghĩ.
-   Lúc này mục tiêu không còn là "giống văn bản Internet" mà là "**ra kết quả
-   đúng**".
+3. **RL với phần thưởng kiểm chứng được** (RLVR — ví dụ DeepSeek-R1, đăng
+   trên *Nature* 9/2025; các "reasoning model"): thưởng khi đáp án toán đúng,
+   code qua test. Model tự học **tự kiểm tra, quay lui, sửa lỗi** trong chuỗi
+   suy nghĩ mà không cần vết suy luận do người viết. Mục tiêu không còn là
+   "giống văn bản Internet" mà là "**ra kết quả đúng**". *Tranh luận mở:* Yue
+   et al. (NeurIPS 2025) cho thấy RL tăng pass@1 nhưng base model thắng ở pass@k
+   với k lớn, tức RL chủ yếu *chọn lại* năng lực sẵn có; ProRL (NeurIPS 2025)
+   cho thấy RL kéo dài có thể vượt base model.
 4. **Công cụ & truy xuất**: RAG (Lewis et al. 2020), gọi máy tính, chạy code,
    tìm web — model dự đoán *lời gọi công cụ*, còn sự thật/con số đến từ nguồn
    tin cậy.
@@ -203,8 +218,10 @@ Vì vậy "LLM chỉ là predict" là đúng về cơ chế sinh, nhưng **cái 
 
 Một lượt forward qua transformer có độ sâu cố định (`n_layer` block). Về lý
 thuyết, điều này giới hạn lượng tính toán tuần tự trong **một** token
-(Merrill & Sabharwal 2023/2024; Feng et al. 2023): có những bài toán không
-thể giải trong một bước forward với độ sâu cố định.
+(Feng et al., NeurIPS 2023): không có CoT, transformer độ sâu hằng bị chặn
+trên bởi lớp mạch TC0 (độ chính xác log), thậm chí chỉ AC0 nếu độ chính xác
+là hằng số (Li et al., ICLR 2024). Với poly(n) bước CoT, transformer nhận
+được **đúng bằng lớp P** (Merrill & Sabharwal, ICLR 2024).
 
 **Chain-of-thought** (Wei et al. 2022; Kojima et al. 2022 — "Let's think step
 by step") phá giới hạn đó: mỗi token sinh ra được nối lại vào ngữ cảnh (đúng
@@ -216,7 +233,14 @@ có thể mô phỏng tính toán tuần tự tổng quát. Đó là lý do:
 - **Self-consistency** (Wang et al. 2022): sinh nhiều lời giải, chọn đáp án
   xuất hiện nhiều nhất → lỗi ngẫu nhiên bị triệt tiêu.
 - Reasoning model "nghĩ lâu hơn" (nhiều token hơn) trước khi trả lời → chính
-  xác hơn (test-time compute scaling).
+  xác hơn (test-time compute scaling). Snell et al. (ICLR 2025): model nhỏ
+  dùng thêm compute lúc trả lời có thể thắng model lớn hơn 14 lần, nhưng **chỉ
+  ở câu dễ và trung bình**; câu khó nhất vẫn cần pretraining mạnh hơn.
+- **Cảnh báo:** CoT tăng độ chính xác, nhưng *văn bản* CoT không phản ánh
+  trung thực cách model tính. Reasoning model chỉ nhắc tới gợi ý nó thực sự
+  dùng trong ~25% (Claude 3.7 Sonnet) đến ~39% (DeepSeek-R1) trường hợp
+  (Chen et al. 2025); Turpin et al. (NeurIPS 2023) cũng thấy CoT bỏ qua thiên
+  kiến làm lệch câu trả lời.
 
 ---
 
@@ -227,11 +251,12 @@ vết của mục tiêu "dự đoán"**:
 
 | Hiện tượng | Nguyên nhân gốc |
 |---|---|
-| **Hallucination** (bịa sự kiện, trích dẫn) | Model được train để sinh văn bản *hợp lý*; với sự kiện hiếm (xuất hiện ít lần trong dữ liệu) nó vẫn sinh ra câu trôi chảy. Kalai et al. 2025 (*Why Language Models Hallucinate*) chỉ ra: cách chấm điểm thưởng cho việc đoán hơn là nói "tôi không biết". |
-| **Reversal curse**: biết "A là mẹ của B" nhưng không trả lời được "B là con của ai" | Học theo chiều trái→phải; Berglund et al. 2023. |
-| **Nhạy với tần suất** ("embers of autoregression"): đếm/đảo chữ, mã hoá kém hơn với chuỗi ít gặp | McCoy et al. 2023: độ chính xác phụ thuộc xác suất của đầu ra trong dữ liệu train. |
+| **Hallucination** (bịa sự kiện, trích dẫn) | Model được train để sinh văn bản *hợp lý*; với sự kiện hiếm nó vẫn sinh ra câu trôi chảy. Kalai et al. 2025 (*Why Language Models Hallucinate*, preprint): tỷ lệ bịa có cận dưới xấp xỉ tỷ lệ sự kiện chỉ xuất hiện **một lần** trong dữ liệu ("singleton rate"), và benchmark chấm 0/1 thưởng việc đoán hơn nói "tôi không biết"; đề xuất phạt câu sai t/(1−t) với ngưỡng tin cậy t. |
+| **Reversal curse**: biết "A là mẹ của B" nhưng không trả lời được "B là con của ai" | Học theo chiều trái→phải; Berglund et al. (ICLR 2024): GPT-4 đúng 79% chiều xuôi, 33% chiều ngược. "Reverse training" (Golovneva et al. 2024) giảm được đáng kể → không phải giới hạn cơ bản. |
+| **Nhạy với tần suất** ("embers of autoregression"): đếm/đảo chữ, mã hoá kém hơn với chuỗi ít gặp | McCoy et al. (PNAS 2024): GPT-4 giải mã mật mã đúng 51% khi đáp án là câu xác suất cao, chỉ 13% khi xác suất thấp. Với o1 hiện tượng giảm nhưng không mất. |
 | **Tính toán nhiều bước dài** (nhân số rất lớn) không có CoT | Giới hạn độ sâu cố định; Dziri et al. 2023 (*Faith and Fate*): model hay ghép mẫu cục bộ thay vì thuật toán hệ thống. |
-| **Lỗi do tokenizer** (đếm chữ cái trong từ, số học chữ số) | Model thấy token BPE, không thấy ký tự — xem `scripts/inspect_vocab.py` để thấy một từ tiếng Việt bị tách thế nào. |
+| **Lỗi do tokenizer** (đếm chữ cái trong từ, số học chữ số) | Model thấy token BPE, không thấy ký tự — xem `scripts/inspect_vocab.py` để thấy một từ tiếng Việt bị tách thế nào. Bằng chứng lẫn lộn (CharBench 2025): tokenizer là *một yếu tố góp phần*, không phải nguyên nhân duy nhất. |
+| **Độ bền suy luận** | GSM-Symbolic (Apple 2024): thêm một mệnh đề thừa làm độ chính xác giảm đến 65%. Kết luận "không biết suy luận" vẫn đang bị phản biện về mặt thống kê. |
 | **Lỗi dồn tích** | Một token sai được nối vào ngữ cảnh và mọi token sau đều điều kiện hoá trên nó (autoregressive). |
 
 Vì vậy câu trả lời chính xác hơn cho câu hỏi ban đầu là: **LLM đúng ở những
@@ -283,6 +308,10 @@ nơi dữ liệu + quy mô + post-training đã khiến cấu trúc thật trở
 
 ## 12. Tài liệu tham khảo
 
+*Đã kiểm chứng và cập nhật bằng đợt nghiên cứu ngày 2026-11-08 (51 nguồn, có
+link và trạng thái bình duyệt):
+[`_bmad-output/planning-artifacts/research/academic-lit-why-llms-answer-accurately-despite-next-2026-11-08/research.md`](../_bmad-output/planning-artifacts/research/academic-lit-why-llms-answer-accurately-despite-next-2026-11-08/research.md).*
+
 - Shannon, C. (1948). *A Mathematical Theory of Communication*; (1951). *Prediction and Entropy of Printed English*.
 - Bengio, Y. et al. (2003). *A Neural Probabilistic Language Model*. JMLR.
 - Vaswani, A. et al. (2017). *Attention Is All You Need*.
@@ -306,9 +335,21 @@ nơi dữ liệu + quy mô + post-training đã khiến cấu trúc thật trở
 - Schaeffer, R. et al. (2023). *Are Emergent Abilities of Large Language Models a Mirage?*
 - Feng, G. et al. (2023). *Towards Revealing the Mystery behind Chain of Thought: A Theoretical Perspective*.
 - Merrill, W. & Sabharwal, A. (2023/2024). *The Expressive Power of Transformers with Chain of Thought*.
-- Berglund, L. et al. (2023). *The Reversal Curse: LLMs trained on "A is B" fail to learn "B is A"*.
-- McCoy, R. T. et al. (2023). *Embers of Autoregression*.
+- Berglund, L. et al. (2023, ICLR 2024). *The Reversal Curse: LLMs trained on "A is B" fail to learn "B is A"*.
+- McCoy, R. T. et al. (2023/2024). *Embers of Autoregression*. PNAS 2024.
 - Dziri, N. et al. (2023). *Faith and Fate: Limits of Transformers on Compositionality*.
-- DeepSeek-AI (2025). *DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning*.
+- DeepSeek-AI (2025). *DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning*. Nature 645.
 - Lindsey, J. et al. (2025). *On the Biology of a Large Language Model*. Anthropic (Transformer Circuits).
 - Kalai, A. T. et al. (2025). *Why Language Models Hallucinate*. OpenAI.
+- Kalai, A. T. & Vempala, S. (2024). *Calibrated Language Models Must Hallucinate*. STOC 2024.
+- Huang, Y. et al. (2024). *Compression Represents Intelligence Linearly*. COLM 2024.
+- Du, Z. et al. (2024). *Understanding Emergent Abilities of Language Models from the Loss Perspective*. NeurIPS 2024.
+- Vafa, K. et al. (2024). *Evaluating the World Model Implicit in a Generative Model*. NeurIPS 2024.
+- Karvonen, A. (2024). *Emergent World Models and Latent Variable Estimation in Chess-Playing Language Models*.
+- Li, Z. et al. (2024). *Chain of Thought Empowers Transformers to Solve Inherently Serial Problems*. ICLR 2024.
+- Snell, C. et al. (2025). *Scaling LLM Test-Time Compute Optimally Can Be More Effective than Scaling Model Parameters*. ICLR 2025.
+- Yue, Y. et al. (2025). *Does Reinforcement Learning Really Incentivize Reasoning Capacity in LLMs Beyond the Base Model?* NeurIPS 2025.
+- Chen, Y. et al. (2025). *Reasoning Models Don't Always Say What They Think*. Anthropic.
+- Turpin, M. et al. (2023). *Language Models Don't Always Say What They Think*. NeurIPS 2023.
+- Golovneva, O. et al. (2024). *Reverse Training to Nurse the Reversal Curse*.
+- Mirzadeh, I. et al. (2024). *GSM-Symbolic*. Apple.

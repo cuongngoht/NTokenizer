@@ -33,6 +33,7 @@ ntok-prepare-dataset = "ntokenizer.cli.prepare_dataset:main"
 ntok-train = "ntokenizer.cli.train:main"
 ntok-sample = "ntokenizer.cli.sample:main"
 ntok-make-meta = "ntokenizer.cli.make_meta:main"
+ntok-count-tokens = "ntokenizer.cli.count_tokens:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

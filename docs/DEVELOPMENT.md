@@ -121,12 +121,33 @@ python scripts/train_tokenizer_spm.py --vocab_size 8000
 python scripts/train_tokenizer_spm.py --vocab_size 32000 \
     --input data/interim/corpus.txt \
     --output_dir artifacts/tokenizer/
+
+# Train on a mix of large corpora (e.g. Wikipedia + FineWeb-2)
+python scripts/train_tokenizer_spm.py \
+    --input data/interim/corpus.txt data/interim/fineweb2_vi.txt \
+    --name vi_mix_bpe
+
+# Not enough RAM? Cap how many lines SentencePiece loads
+python scripts/train_tokenizer_spm.py --max_sentences 5000000
 ```
 
 **What it does**
 
-Trains a Byte Pair Encoding (BPE) tokenizer on up to 1 million sentences
-sampled from `data/interim/corpus.txt` using the `sentencepiece` library.
+Trains a Byte Pair Encoding (BPE) tokenizer with the `sentencepiece`
+library on **every line of every input file** by default, so the vocabulary
+reflects all of the data the model will be trained on rather than a small
+sample. The script prints the total size, line count and the fraction of
+the corpus actually used, and warns when that fraction is below 50%.
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--input` | `data/interim/corpus.txt` | One or more corpus files; their sizes are summed for the auto vocab size |
+| `--max_sentences` | `0` (all lines) | Cap on lines loaded into RAM; SentencePiece holds them all in memory |
+| `--max_sentence_length` | `16384` bytes | Longer lines are skipped; SentencePiece's own default (4,192) silently drops many Wikipedia paragraphs |
+| `--name` | `viwiki_bpe` | Output file prefix (`{name}_{N}k.model`) |
+
+SentencePiece's large-corpus mode is switched on automatically above 10
+million lines.
 
 **Auto-sized `vocab_size`**
 
@@ -198,6 +219,31 @@ IDs    : [1064, 1525, 283, 656, 897, 123, 987, 234, 5]
 Decoded: "Hà Nội là thủ đô của Việt Nam."
 Match  : ✓
 ```
+
+**Count the tokens of any prompt**
+
+```bash
+python scripts/count_tokens.py "Hà Nội là thủ đô của Việt Nam, một quốc gia ở Đông Nam Á." \
+    --model artifacts/tokenizer/viwiki_bpe_8k.model --block-size 512 --show-pieces
+python scripts/count_tokens.py --file prompt.txt     # from a file
+cat prompt.txt | python scripts/count_tokens.py       # from stdin
+```
+
+The prompt is encoded exactly as the model receives it, so the count is the
+number of context positions it occupies. Output with the 8k tokenizer:
+
+```
+Tokens          : 17
+Characters      : 57
+Words           : 15
+Tokens per word : 1.13
+Bytes per token : 4.59
+Context         : fits in 512 (495 tokens left for generation)
+Pieces          : ▁Hà | ▁Nội | ▁là | ▁thủ | ▁đô | ▁của | ▁Việt | ▁Nam | , | ▁một | ▁quốc | ▁gia | ▁ở | ▁Đông | ▁Nam | ▁Á | .
+```
+
+Lower *tokens per word* (fertility) means the tokenizer fits more text in
+the same context and the model has fewer steps to predict.
 
 ---
 
