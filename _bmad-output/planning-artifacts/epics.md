@@ -7,682 +7,685 @@ inputDocuments:
   - README.md
   - docs/DEVELOPMENT.md
   - docs/FINETUNING.md
-  - docs/why_llms_are_accurate.vi.md
+  - docs/why_llms_are_accurate.md
 ---
 
 # NTokenizer - Epic Breakdown
 
 ## Overview
 
-Tài liệu này phân rã yêu cầu thành epic và story cho NTokenizer: một GPT tiếng
-Việt xây từ đầu bằng PyTorch thuần (hiện train trên Wikipedia tiếng Việt).
+This document breaks the requirements down into epics and stories for
+NTokenizer: a Vietnamese GPT built from scratch in plain PyTorch (currently
+trained on Vietnamese Wikipedia).
 
-**Không có PRD và tài liệu kiến trúc.** Yêu cầu được rút từ ba nguồn: báo cáo
-nghiên cứu kỹ thuật (khuyến nghị R1–R8), buổi brainstorm 115 ý tưởng, và mã
-nguồn cùng tài liệu hiện có. Nếu sau này có PRD thì nên đối chiếu lại.
+**There is no PRD or architecture document.** The requirements are drawn from
+three sources: the technical research report (recommendations R1–R8), the
+115-idea brainstorming session, and the existing source code and
+documentation. If a PRD is created later, these requirements should be
+reconciled against it.
 
-**Người dùng chính:** chủ dự án (nhà nghiên cứu/học viên) muốn (a) hiểu cơ chế
-dự đoán token trên chính model của mình, và (b) nâng model từ "chỉ biết
-Wikipedia" thành một LM tiếng Việt hữu ích hơn.
+**Primary user:** the project owner (a researcher/learner) who wants to (a)
+understand the token-prediction mechanism on their own model, and (b) upgrade
+the model from "only knows Wikipedia" to a more useful Vietnamese LM.
 
-**Giả định phần cứng:** chưa biết. Mọi yêu cầu về thời gian train được đo trên
-máy thật (Epic 4) thay vì hứa trước.
+**Hardware assumption:** unknown. Every training-time requirement is measured
+on the real machine (Epic 4) rather than promised in advance.
 
 ## Requirements Inventory
 
 ### Functional Requirements
 
-**Đánh giá**
-- FR1: Có script tính bits-per-byte (BPB) trên tập validation cố định, để so sánh được giữa các tokenizer khác nhau.
-- FR2: Có script đánh giá cloze/đoán từ tiếp theo bằng tiếng Việt (kiểu `lambada_vi`) và báo độ chính xác.
-- FR3: Có công cụ kiểm tra trùng n-gram (8-gram và 13-gram) giữa dữ liệu train và bộ đánh giá.
-- FR4: Mỗi checkpoint có một bảng kết quả đánh giá (BPB, cloze) được lưu lại để so sánh theo thời gian.
+**Evaluation**
+- FR1: A script computes bits-per-byte (BPB) on a fixed validation set, so that different tokenizers can be compared.
+- FR2: A script evaluates Vietnamese cloze/next-word prediction (in the style of `lambada_vi`) and reports accuracy.
+- FR3: A tool checks n-gram overlap (8-gram and 13-gram) between the training data and the evaluation sets.
+- FR4: Each checkpoint has an evaluation results table (BPB, cloze) that is saved so results can be compared over time.
 
-**Dữ liệu**
-- FR5: Pipeline chuẩn hoá Unicode về NFC và thống nhất vị trí dấu thanh ("hoà"/"hòa").
-- FR6: Pipeline loại trùng bằng MinHash và lọc các bài sơ khai/quá ngắn.
-- FR7: Nạp được một tập con của FineWeb-2 `vie_Latn` (theo số token cấu hình) mà không cần tải toàn bộ.
-- FR8: Cấu hình tỷ lệ trộn giữa các nguồn (Wikipedia, FineWeb-2) và ghi lại nguồn gốc/giấy phép của từng nguồn trong `meta.json`.
+**Data**
+- FR5: The pipeline normalizes Unicode to NFC and unifies the position of tone marks ("hoà"/"hòa", i.e. old-style vs. new-style tone mark placement).
+- FR6: The pipeline removes duplicates with MinHash and filters out stub/too-short articles.
+- FR7: A configurable subset of FineWeb-2 `vie_Latn` (by token count) can be loaded without downloading the whole dataset.
+- FR8: The mixing ratio between sources (Wikipedia, FineWeb-2) is configurable, and the provenance/license of each source is recorded in `meta.json`.
 
 **Tokenizer**
-- FR9: Có công cụ đo fertility (token trên từ) và tỷ lệ nén trên văn bản tiếng Việt cho một tokenizer bất kỳ.
-- FR10: Train và so sánh được các tokenizer với kích thước vocab khác nhau (16k/20k/32k) trên hỗn hợp dữ liệu mới.
+- FR9: A tool measures fertility (tokens per word) and compression ratio on Vietnamese text for any tokenizer.
+- FR10: Tokenizers with different vocab sizes (16k/20k/32k) can be trained and compared on the new data mix.
 
-**Train**
-- FR11: Tuỳ chọn gộp chung embedding vào và ra (weight tying) trong `GPTConfig`.
-- FR12: Có cách đặt kích thước model theo một tham số độ sâu (preset sâu-mỏng), thay vì chỉnh tay nhiều hệ số.
-- FR13: Có công cụ lập kế hoạch ngân sách token: từ số tham số và số epoch tối đa, tính số token cần và cảnh báo khi lặp quá 4 epoch.
-- FR14: Có script đo throughput (token/giây) theo thiết bị và ghi vào tài liệu.
-- FR15: (Thử nghiệm) Tuỳ chọn QK-Norm và optimizer Muon, bật tắt được bằng cờ.
+**Training**
+- FR11: An option in `GPTConfig` ties the input and output embeddings (weight tying).
+- FR12: Model size can be set from a single depth parameter (a deep-and-thin preset), instead of hand-tuning many coefficients.
+- FR13: A token budget planning tool computes, from the parameter count and the maximum number of epochs, the number of tokens required, and warns when data would be repeated for more than 4 epochs.
+- FR14: A script measures throughput (tokens/second) per device and records it in the documentation.
+- FR15: (Experimental) QK-Norm and Muon optimizer options, toggled by flags.
 
-**Hội thoại (SFT)**
-- FR16: Chuyển được dữ liệu instruction tiếng Việt (vi-alpaca, Aya) sang định dạng train có chat template.
-- FR17: SFT hỗ trợ tuỳ chọn che hoặc không che prompt khi tính loss.
-- FR18: Có CLI hội thoại tương tác với model đã SFT.
+**Conversation (SFT)**
+- FR16: Vietnamese instruction data (vi-alpaca, Aya) can be converted to a training format with a chat template.
+- FR17: SFT supports an option to mask or not mask the prompt when computing the loss.
+- FR18: An interactive chat CLI is available for the SFT-tuned model.
 
-**Kính hiển vi dự đoán**
-- FR19: `sample.py` hiển thị top-5 xác suất ở mỗi bước sinh.
-- FR20: Có công cụ logit lens: chiếu activation từng tầng qua `ln_f` và `lm_head`, vẽ hạng của token đúng theo tầng.
-- FR21: Có công cụ tô màu entropy từng token trên một đoạn văn.
-- FR22: Có biểu đồ độ tin cậy (reliability diagram) so sánh xác suất dự đoán với tỷ lệ đúng thực tế.
+**Prediction microscope**
+- FR19: `sample.py` shows the top-5 probabilities at each generation step.
+- FR20: A logit lens tool projects each layer's activations through `ln_f` and `lm_head` and plots the rank of the correct token by layer.
+- FR21: A tool colors each token of a passage by its entropy.
+- FR22: A reliability diagram compares predicted probabilities with the actual fraction correct.
 
-**Phòng thí nghiệm cơ chế**
-- FR23: Tạo được dataset grokking `a + b = c (mod 97)` dạng văn bản và cấu hình model 2 tầng để train, ghi train/val accuracy theo bước.
-- FR24: Tạo được dataset "thế giới giả" với sự kiện lặp 1, 2, 5, 10, 50 lần và đo độ chính xác nhớ lại theo tần suất.
-- FR25: Có bài kiểm tra reversal curse bằng tiếng Việt (câu xuôi và câu ngược).
-- FR26: Có công cụ phát hiện induction head và quét ablation từng head.
+**Mechanism lab**
+- FR23: A text-format grokking dataset `a + b = c (mod 97)` and a 2-layer model configuration can be created for training, logging train/val accuracy per step.
+- FR24: A "fake world" dataset can be created with facts repeated 1, 2, 5, 10, and 50 times, measuring recall accuracy by frequency.
+- FR25: A Vietnamese reversal curse test is available (forward and reverse sentences).
+- FR26: A tool detects induction heads and runs a per-head ablation sweep.
 
-**Tài liệu**
-- FR27: Có model card liệt kê nguồn dữ liệu, giấy phép (CC BY-SA, ODC-By) và giới hạn.
-- FR28: Có bài giải thích tiếng Anh `docs/how_llms_predict.md` với một thí nghiệm chạy được cho mỗi chương.
+**Documentation**
+- FR27: A model card lists data sources, licenses (CC BY-SA, ODC-By), and limitations.
+- FR28: An English explainer `docs/how_llms_predict.md` has one runnable experiment per chapter.
 
 ### NonFunctional Requirements
 
-- NFR1: Mọi công cụ mới nằm trong `src/ntokenizer/` và chỉ được gọi qua script mỏng trong `scripts/`.
-- NFR2: Mọi thay đổi trong `src/` có test pytest; bộ test hiện có vẫn phải qua.
-- NFR3: Kết quả đo phải tái lập được: cố định seed và ghi cấu hình/commit vào file kết quả.
-- NFR4: Pipeline dữ liệu không được yêu cầu nạp toàn bộ corpus vào RAM (chạy trên máy 8–16 GB).
-- NFR5: Tokenizer dùng khi train và sample phải khớp checkpoint; mọi thay đổi tokenizer phải kèm cảnh báo checkpoint cũ không còn dùng được.
-- NFR6: Mỗi nguồn dữ liệu phải có bản ghi nguồn, giấy phép và ngày tải.
-- NFR7: Công cụ chạy được trên CPU, CUDA và MPS; tính năng nặng phải có chế độ nhỏ để thử.
-- NFR8: Câu chữ trong tài liệu và kết quả mô tả "biểu diễn/tính toán ở quy mô nhỏ", không khẳng định model "hiểu".
+- NFR1: All new tools live in `src/ntokenizer/` and are invoked only through thin scripts in `scripts/`.
+- NFR2: Every change in `src/` has pytest tests; the existing test suite must still pass.
+- NFR3: Measurements must be reproducible: fix the seed and record the configuration/commit in the result file.
+- NFR4: The data pipeline must not require loading the entire corpus into RAM (it must run on 8–16 GB machines).
+- NFR5: The tokenizer used for training and sampling must match the checkpoint; any tokenizer change must come with a warning that old checkpoints are no longer usable.
+- NFR6: Every data source must have a record of its origin, license, and download date.
+- NFR7: Tools must run on CPU, CUDA, and MPS; heavy features must have a small mode for trying them out.
+- NFR8: Wording in documentation and results describes "representation/computation at small scale" and does not claim the model "understands".
 
 ### Additional Requirements
 
-- Không có starter template; repo đã có sẵn khung (`pyproject.toml`, `src/ntokenizer`, `scripts`, `tests`).
-- Mạng của môi trường cloud chặn `huggingface.co` và `arxiv.org`. Story nạp dữ liệu phải chạy được ở máy người dùng và có cách chạy thử với dữ liệu mẫu nhỏ.
-- Mọi probe phải đi cùng một can thiệp (patching hoặc ablation) trước khi rút ra kết luận (quy tắc "Critic" của brainstorm).
-- Các điều kiện pháp lý còn mở: CC BY-SA có áp dụng cho trọng số hay không chưa có câu trả lời, nên model card phải nêu rõ điều này.
-- Không dùng VMLU làm thước đo chính cho model dưới 200M tham số (PhoGPT-7B5-Instruct chỉ đạt 24,01, ngang đoán ngẫu nhiên).
-- Số liệu throughput trên GPU tiêu dùng và Mac chưa có nguồn đáng tin; phải đo trực tiếp.
+- No starter template; the repo already has its skeleton (`pyproject.toml`, `src/ntokenizer`, `scripts`, `tests`).
+- The cloud environment's network blocks `huggingface.co` and `arxiv.org`. The data-loading story must run on the user's machine and have a way to run a trial with small sample data.
+- Every probe must be paired with an intervention (patching or ablation) before drawing conclusions (the brainstorm's "Critic" rule).
+- Open legal questions: whether CC BY-SA applies to model weights has no answer yet, so the model card must state this explicitly.
+- Do not use VMLU as the primary metric for models under 200M parameters (PhoGPT-7B5-Instruct scores only 24.01, on par with random guessing).
+- Throughput figures on consumer GPUs and Macs have no reliable source; they must be measured directly.
 
 ### UX Design Requirements
 
-Không áp dụng: dự án không có giao diện. Các công cụ là CLI và tệp ảnh/HTML tĩnh.
+Not applicable: the project has no user interface. The tools are CLIs and static image/HTML files.
 
 ### FR Coverage Map
 
-FR1: Epic 1 - Bits-per-byte trên tập validation cố định
-FR2: Epic 1 - Đánh giá cloze tiếng Việt
-FR3: Epic 1 - Kiểm tra trùng n-gram
-FR4: Epic 1 - Bảng kết quả theo checkpoint
-FR5: Epic 2 - Chuẩn hoá NFC và vị trí dấu
-FR6: Epic 2 - Loại trùng MinHash và lọc bài sơ khai
-FR7: Epic 2 - Nạp tập con FineWeb-2
-FR8: Epic 2 - Trộn nguồn và ghi nguồn gốc
-FR9: Epic 3 - Đo fertility và tỷ lệ nén
-FR10: Epic 3 - So sánh kích thước vocab
+FR1: Epic 1 - Bits-per-byte on a fixed validation set
+FR2: Epic 1 - Vietnamese cloze evaluation
+FR3: Epic 1 - N-gram overlap check
+FR4: Epic 1 - Results table per checkpoint
+FR5: Epic 2 - NFC normalization and tone mark position
+FR6: Epic 2 - MinHash deduplication and stub filtering
+FR7: Epic 2 - Loading a FineWeb-2 subset
+FR8: Epic 2 - Source mixing and provenance recording
+FR9: Epic 3 - Measuring fertility and compression ratio
+FR10: Epic 3 - Comparing vocab sizes
 FR11: Epic 4 - Weight tying
-FR12: Epic 4 - Preset theo độ sâu
-FR13: Epic 4 - Lập kế hoạch ngân sách token (Story 4.4)
-FR14: Epic 4 - Đo throughput (Story 4.3)
-FR15: Epic 4 - QK-Norm và Muon (thử nghiệm)
-FR16: Epic 5 - Chuẩn bị dữ liệu SFT
-FR17: Epic 5 - Che hoặc không che prompt
-FR18: Epic 5 - CLI hội thoại
-FR19: Epic 6 - Top-5 xác suất
+FR12: Epic 4 - Depth-based preset
+FR13: Epic 4 - Token budget planning (Story 4.4)
+FR14: Epic 4 - Throughput measurement (Story 4.3)
+FR15: Epic 4 - QK-Norm and Muon (experimental)
+FR16: Epic 5 - SFT data preparation
+FR17: Epic 5 - Masking or not masking the prompt
+FR18: Epic 5 - Chat CLI
+FR19: Epic 6 - Top-5 probabilities
 FR20: Epic 6 - Logit lens
-FR21: Epic 6 - Heatmap entropy
+FR21: Epic 6 - Entropy heatmap
 FR22: Epic 6 - Reliability diagram
 FR23: Epic 7 - Grokking mod 97
-FR24: Epic 7 - Thế giới giả theo tần suất
-FR25: Epic 7 - Reversal curse tiếng Việt
-FR26: Epic 7 - Induction head và ablation
-FR27: Epic 8 - Model card và giấy phép
-FR28: Epic 8 - Bài giải thích tiếng Anh
+FR24: Epic 7 - Fake world by frequency
+FR25: Epic 7 - Vietnamese reversal curse
+FR26: Epic 7 - Induction heads and ablation
+FR27: Epic 8 - Model card and licenses
+FR28: Epic 8 - English explainer
 
 ## Epic List
 
-### Epic 1: Biết model tốt lên hay tệ đi (bộ đánh giá)
-Chủ dự án chạy một lệnh để thấy BPB và độ chính xác cloze của bất kỳ checkpoint nào, và biết dữ liệu đánh giá có bị lẫn vào dữ liệu train hay không.
+### Epic 1: Knowing whether the model is getting better or worse (evaluation suite)
+The project owner runs one command to see the BPB and cloze accuracy of any checkpoint, and to know whether the evaluation data has leaked into the training data.
 **FRs covered:** FR1, FR2, FR3, FR4
 
-### Epic 2: Dữ liệu tiếng Việt sạch và đủ lớn
-Chủ dự án có một bộ dữ liệu train gồm Wikipedia và một phần FineWeb-2, đã chuẩn hoá, loại trùng, có ghi nguồn gốc và giấy phép.
+### Epic 2: Clean and sufficiently large Vietnamese data
+The project owner has a training dataset made of Wikipedia and a portion of FineWeb-2, normalized, deduplicated, with provenance and license recorded.
 **FRs covered:** FR5, FR6, FR7, FR8
 
-### Epic 3: Tokenizer tối ưu cho tiếng Việt
-Chủ dự án chọn được kích thước vocab dựa trên số đo (fertility, nén, BPB) thay vì đoán.
+### Epic 3: A tokenizer optimized for Vietnamese
+The project owner chooses the vocab size based on measurements (fertility, compression, BPB) instead of guessing.
 **FRs covered:** FR9, FR10
 
-### Epic 4: Công thức train nhỏ gọn và có số đo thật
-Chủ dự án lập được kế hoạch train (kích thước, token, thời gian) phù hợp với máy mình, và dùng được các cải tiến kiến trúc đã được kiểm chứng.
+### Epic 4: A compact training recipe with real measurements
+The project owner can plan training (size, tokens, time) that fits their machine, and can use architecture improvements that have been validated.
 **FRs covered:** FR11, FR12, FR13, FR14, FR15
 
-### Epic 5: Model biết trò chuyện bằng tiếng Việt (SFT)
-Chủ dự án tinh chỉnh checkpoint đã pretrain thành model trả lời câu hỏi, và so sánh được các lựa chọn SFT bằng bộ đánh giá.
+### Epic 5: A model that can chat in Vietnamese (SFT)
+The project owner fine-tunes a pretrained checkpoint into a question-answering model, and can compare SFT choices using the evaluation suite.
 **FRs covered:** FR16, FR17, FR18
 
-### Epic 6: Kính hiển vi dự đoán
-Chủ dự án nhìn thấy model đang "nghĩ" gì ở mỗi token: xác suất, tầng nào quyết định, chỗ nào không chắc, và xác suất có đáng tin không.
+### Epic 6: The prediction microscope
+The project owner sees what the model is "thinking" at each token: the probabilities, which layer decides, where it is uncertain, and whether the probabilities can be trusted.
 **FRs covered:** FR19, FR20, FR21, FR22
 
-### Epic 7: Phòng thí nghiệm kiểm chứng cơ chế
-Chủ dự án tự tái hiện ở quy mô nhỏ các hiện tượng trong tài liệu nghiên cứu: grokking, nhớ sự kiện theo tần suất, reversal curse, induction head.
+### Epic 7: A mechanism verification lab
+The project owner reproduces, at small scale, the phenomena described in the research literature: grokking, fact memorization by frequency, the reversal curse, and induction heads.
 **FRs covered:** FR23, FR24, FR25, FR26
 
-### Epic 8: Công bố và giải thích
-Người ngoài đọc được model card rõ ràng về dữ liệu và giấy phép, và một bài giải thích tiếng Anh gắn với thí nghiệm chạy được.
+### Epic 8: Publication and explanation
+An outside reader can read a clear model card about the data and licenses, and an English explainer tied to runnable experiments.
 **FRs covered:** FR27, FR28
 
-## Epic 1: Biết model tốt lên hay tệ đi (bộ đánh giá)
+## Epic 1: Knowing whether the model is getting better or worse (evaluation suite)
 
-Chủ dự án chạy một lệnh để thấy BPB và độ chính xác cloze của bất kỳ checkpoint nào, và biết dữ liệu đánh giá có bị lẫn vào dữ liệu train hay không.
+The project owner runs one command to see the BPB and cloze accuracy of any checkpoint, and to know whether the evaluation data has leaked into the training data.
 
-### Story 1.1: Tính bits-per-byte trên tập validation
+### Story 1.1: Compute bits-per-byte on the validation set
 
-As a chủ dự án,
-I want chạy một lệnh tính bits-per-byte của checkpoint trên một tập validation cố định,
-So that tôi so sánh được các model dùng tokenizer khác nhau một cách công bằng.
-
-**Acceptance Criteria:**
-
-**Given** một checkpoint và `val.bin` cùng `meta.json` hợp lệ
-**When** tôi chạy `scripts/eval_bpb.py --ckpt <path>`
-**Then** script in loss (nat/token), số byte UTF-8 của văn bản tương ứng (đếm bằng cách giải mã token của `val.bin`) và BPB
-**And** BPB = loss × (số token / số byte) / ln 2, có test với dữ liệu giả cho kết quả đã biết.
-
-**Given** tokenizer của `meta.json` không khớp checkpoint
-**When** tôi chạy script
-**Then** script dừng với thông báo lỗi rõ ràng thay vì in số sai.
-
-### Story 1.2: Đánh giá cloze tiếng Việt
-
-As a chủ dự án,
-I want đo độ chính xác khi model đoán từ cuối của một câu,
-So that tôi có thước đo "dùng được" cho model nhỏ mà VMLU không đo nổi.
+As a project owner,
+I want to run one command that computes the bits-per-byte of a checkpoint on a fixed validation set,
+So that I can fairly compare models that use different tokenizers.
 
 **Acceptance Criteria:**
 
-**Given** một tệp JSONL các mục `{context, target}` do tôi cung cấp (tối thiểu 3 mục mẫu đi kèm repo để thử)
-**When** tôi chạy `scripts/eval_cloze.py --ckpt <path> --data <file>`
-**Then** script báo tỷ lệ đúng khi greedy decode tái tạo `target`, và in từng mục sai nếu có `--verbose`
-**And** kết quả chạy lại với cùng seed là giống hệt.
+**Given** a checkpoint and a valid `val.bin` with `meta.json`
+**When** I run `scripts/eval_bpb.py --ckpt <path>`
+**Then** the script prints the loss (nat/token), the number of UTF-8 bytes of the corresponding text (counted by decoding the tokens of `val.bin`), and the BPB
+**And** BPB = loss × (number of tokens / number of bytes) / ln 2, with a test on synthetic data giving a known result.
 
-**Given** một mục có `target` gồm nhiều token
-**When** đánh giá
-**Then** mục chỉ tính đúng khi toàn bộ token của `target` khớp.
+**Given** the tokenizer in `meta.json` does not match the checkpoint
+**When** I run the script
+**Then** the script stops with a clear error message instead of printing a wrong number.
 
-### Story 1.3: Kiểm tra trùng n-gram giữa train và bộ đánh giá
+### Story 1.2: Vietnamese cloze evaluation
 
-As a chủ dự án,
-I want biết bao nhiêu mục đánh giá có n-gram xuất hiện trong dữ liệu train,
-So that tôi không báo cáo điểm bị thổi phồng do lẫn dữ liệu.
-
-**Acceptance Criteria:**
-
-**Given** một corpus train và một tệp đánh giá
-**When** tôi chạy `scripts/check_contamination.py --train <corpus> --eval <file> --n 13`
-**Then** script in số và tỷ lệ mục đánh giá có ít nhất một 13-gram trùng, và lưu danh sách mục bị trùng ra tệp
-**And** cờ `--n 8` cho kết quả với 8-gram.
-
-**Given** corpus lớn hơn RAM
-**When** chạy
-**Then** script xử lý theo luồng (không nạp cả corpus vào bộ nhớ) và có test với corpus giả nhỏ.
-
-### Story 1.4: Lưu bảng kết quả theo checkpoint
-
-As a chủ dự án,
-I want mỗi lần đánh giá ghi một dòng vào bảng kết quả,
-So that tôi xem được model tiến bộ ra sao qua các checkpoint.
+As a project owner,
+I want to measure the accuracy with which the model predicts the final word of a sentence,
+So that I have a "usable" metric for small models that VMLU cannot measure.
 
 **Acceptance Criteria:**
 
-**Given** tôi chạy Story 1.1 hoặc 1.2
-**When** thêm cờ `--log-results`
-**Then** một dòng được thêm vào `artifacts/eval/results.csv` gồm thời gian, đường dẫn checkpoint, bước train, metric, giá trị và commit git
-**And** chạy lặp không ghi đè các dòng cũ.
+**Given** a JSONL file of `{context, target}` items that I provide (at least 3 sample items ship with the repo for trying it out)
+**When** I run `scripts/eval_cloze.py --ckpt <path> --data <file>`
+**Then** the script reports the fraction of items where greedy decoding reproduces `target`, and prints each incorrect item when `--verbose` is given
+**And** rerunning with the same seed gives identical results.
 
-**Given** `results.csv` có nhiều dòng
-**When** tôi chạy `scripts/eval_report.py`
-**Then** script in bảng so sánh các checkpoint theo từng metric.
+**Given** an item whose `target` consists of multiple tokens
+**When** evaluating
+**Then** the item counts as correct only if all tokens of `target` match.
 
-## Epic 2: Dữ liệu tiếng Việt sạch và đủ lớn
+### Story 1.3: Check n-gram overlap between train and evaluation sets
 
-Chủ dự án có một bộ dữ liệu train gồm Wikipedia và một phần FineWeb-2, đã chuẩn hoá, loại trùng, có ghi nguồn gốc và giấy phép.
-
-### Story 2.1: Chuẩn hoá Unicode và vị trí dấu thanh
-
-As a chủ dự án,
-I want mọi văn bản đưa vào corpus được chuẩn hoá NFC và thống nhất vị trí dấu,
-So that cùng một từ không bị tách thành nhiều chuỗi token khác nhau.
+As a project owner,
+I want to know how many evaluation items have n-grams that appear in the training data,
+So that I do not report scores inflated by data contamination.
 
 **Acceptance Criteria:**
 
-**Given** một chuỗi chứa "hoà" (kiểu cũ) và "hòa" (kiểu mới) ở dạng NFD hoặc NFC
-**When** gọi hàm `normalize_vi(text)` trong `src/ntokenizer/corpus.py`
-**Then** cả hai về cùng một dạng NFC duy nhất theo quy ước được ghi trong docstring
-**And** có test cho ít nhất 6 cặp từ (hoà/hòa, thuỷ/thủy, khoẻ/khỏe...).
+**Given** a training corpus and an evaluation file
+**When** I run `scripts/check_contamination.py --train <corpus> --eval <file> --n 13`
+**Then** the script prints the count and fraction of evaluation items with at least one overlapping 13-gram, and saves the list of contaminated items to a file
+**And** the `--n 8` flag gives the result for 8-grams.
 
-**Given** pipeline `build_corpus` hiện có
-**When** tôi chạy với cờ `--normalize`
-**Then** corpus đầu ra đã qua `normalize_vi` và bộ test `test_corpus.py` hiện có vẫn qua.
+**Given** a corpus larger than RAM
+**When** running
+**Then** the script processes it as a stream (without loading the whole corpus into memory) and has a test with a small synthetic corpus.
 
-### Story 2.2: Loại trùng MinHash và lọc bài sơ khai
+### Story 1.4: Save a results table per checkpoint
 
-As a chủ dự án,
-I want loại các tài liệu gần trùng nhau và các bài quá ngắn,
-So that model không học lặp lại và không bị kéo bởi bài sơ khai do bot tạo.
-
-**Acceptance Criteria:**
-
-**Given** một corpus có tài liệu trùng và gần trùng
-**When** tôi chạy `scripts/dedup_corpus.py --threshold 0.8 --min-chars <N>`
-**Then** đầu ra giữ một bản đại diện cho mỗi nhóm gần trùng và bỏ bài ngắn hơn `N` ký tự
-**And** script in số tài liệu vào/ra và số bị loại theo từng lý do.
-
-**Given** corpus lớn
-**When** chạy
-**Then** bộ nhớ dùng tăng theo số chữ ký MinHash chứ không theo kích thước văn bản, và có test với dữ liệu giả cho trùng chính xác và gần trùng.
-
-### Story 2.3: Nạp tập con FineWeb-2 tiếng Việt
-
-As a chủ dự án,
-I want tải về một lượng token cấu hình được từ FineWeb-2 `vie_Latn`,
-So that tôi có thêm dữ liệu web mà không phải tải hàng trăm GB.
+As a project owner,
+I want each evaluation run to write a row to a results table,
+So that I can see how the model progresses across checkpoints.
 
 **Acceptance Criteria:**
 
-**Given** máy có truy cập `huggingface.co`
-**When** tôi chạy `scripts/fetch_fineweb2.py --max-tokens 1e9 --out data/raw/fineweb2_vi`
-**Then** script đọc theo luồng, dừng khi đạt ngưỡng và ghi tài liệu ra JSONL
-**And** ghi tệp `SOURCE.json` gồm tên bộ dữ liệu, phiên bản, giấy phép ODC-By, ngày tải, số tài liệu.
+**Given** I run Story 1.1 or 1.2
+**When** I add the `--log-results` flag
+**Then** a row is appended to `artifacts/eval/results.csv` containing the time, checkpoint path, training step, metric, value, and git commit
+**And** repeated runs do not overwrite old rows.
 
-**Given** không có mạng hoặc bị chặn
-**When** chạy với `--sample-fixture`
-**Then** script dùng một tập mẫu nhỏ đi kèm repo để kiểm tra phần còn lại của pipeline.
+**Given** `results.csv` has many rows
+**When** I run `scripts/eval_report.py`
+**Then** the script prints a table comparing checkpoints for each metric.
 
-### Story 2.4: Trộn nguồn dữ liệu và ghi nguồn gốc
+## Epic 2: Clean and sufficiently large Vietnamese data
 
-As a chủ dự án,
-I want khai báo tỷ lệ trộn giữa Wikipedia và FineWeb-2 và có bản ghi nguồn gốc trong `meta.json`,
-So that tôi biết model đã học từ đâu và đáp ứng nghĩa vụ giấy phép.
+The project owner has a training dataset made of Wikipedia and a portion of FineWeb-2, normalized, deduplicated, with provenance and license recorded.
+
+### Story 2.1: Normalize Unicode and tone mark position
+
+As a project owner,
+I want all text entering the corpus to be NFC-normalized with unified tone mark position,
+So that the same word is not split into several different token sequences.
 
 **Acceptance Criteria:**
 
-**Given** hai corpus đã chuẩn hoá và loại trùng
-**When** tôi chạy `scripts/prepare_dataset.py --mix wiki=0.3,fineweb2=0.7`
-**Then** `train.bin` và `val.bin` được tạo theo tỷ lệ gần đúng (sai số ≤ 2% theo số token)
-**And** `meta.json` có mục `sources` liệt kê từng nguồn: tên, giấy phép, số token, ngày tải.
+**Given** a string containing "hoà" (old style) and "hòa" (new style) in NFD or NFC form
+**When** the function `normalize_vi(text)` in `src/ntokenizer/corpus.py` is called
+**Then** both map to a single NFC form according to the convention documented in the docstring
+**And** there are tests for at least 6 word pairs (hoà/hòa, thuỷ/thủy, khoẻ/khỏe...).
+
+**Given** the existing `build_corpus` pipeline
+**When** I run it with the `--normalize` flag
+**Then** the output corpus has passed through `normalize_vi` and the existing `test_corpus.py` test suite still passes.
+
+### Story 2.2: MinHash deduplication and stub filtering
+
+As a project owner,
+I want to remove near-duplicate documents and too-short articles,
+So that the model does not learn repetition and is not skewed by bot-generated stub articles.
+
+**Acceptance Criteria:**
+
+**Given** a corpus with duplicate and near-duplicate documents
+**When** I run `scripts/dedup_corpus.py --threshold 0.8 --min-chars <N>`
+**Then** the output keeps one representative for each near-duplicate group and drops articles shorter than `N` characters
+**And** the script prints the number of documents in/out and the number removed per reason.
+
+**Given** a large corpus
+**When** running
+**Then** memory use grows with the number of MinHash signatures and not with the size of the text, and there is a test on synthetic data for exact and near duplicates.
+
+### Story 2.3: Load a Vietnamese FineWeb-2 subset
+
+As a project owner,
+I want to download a configurable number of tokens from FineWeb-2 `vie_Latn`,
+So that I get more web data without downloading hundreds of GB.
+
+**Acceptance Criteria:**
+
+**Given** a machine with access to `huggingface.co`
+**When** I run `scripts/fetch_fineweb2.py --max-tokens 1e9 --out data/raw/fineweb2_vi`
+**Then** the script reads as a stream, stops when the threshold is reached, and writes the documents to JSONL
+**And** writes a `SOURCE.json` file containing the dataset name, version, ODC-By license, download date, and document count.
+
+**Given** no network or a blocked network
+**When** running with `--sample-fixture`
+**Then** the script uses a small sample set shipped with the repo to exercise the rest of the pipeline.
+
+### Story 2.4: Mix data sources and record provenance
+
+As a project owner,
+I want to declare the mixing ratio between Wikipedia and FineWeb-2 and have a provenance record in `meta.json`,
+So that I know where the model learned from and can meet license obligations.
+
+**Acceptance Criteria:**
+
+**Given** two normalized and deduplicated corpora
+**When** I run `scripts/prepare_dataset.py --mix wiki=0.3,fineweb2=0.7`
+**Then** `train.bin` and `val.bin` are created at approximately the requested ratio (error ≤ 2% by token count)
+**And** `meta.json` has a `sources` entry listing each source: name, license, token count, download date.
 
 **Given** `val.bin`
-**When** tạo
-**Then** tập validation lấy cùng một tập tài liệu cố định (theo hash tài liệu) cho mọi lần trộn để BPB so sánh được.
+**When** created
+**Then** the validation set takes the same fixed set of documents (by document hash) for every mix so that BPB is comparable.
 
-## Epic 3: Tokenizer tối ưu cho tiếng Việt
+## Epic 3: A tokenizer optimized for Vietnamese
 
-Chủ dự án chọn được kích thước vocab dựa trên số đo (fertility, nén, BPB) thay vì đoán.
+The project owner chooses the vocab size based on measurements (fertility, compression, BPB) instead of guessing.
 
-### Story 3.1: Công cụ đo fertility và tỷ lệ nén
+### Story 3.1: Tool to measure fertility and compression ratio
 
-As a chủ dự án,
-I want đo số token trên mỗi từ và số byte trên mỗi token của một tokenizer,
-So that tôi so sánh tokenizer bằng số liệu.
-
-**Acceptance Criteria:**
-
-**Given** một tokenizer SentencePiece và một tệp văn bản tiếng Việt
-**When** tôi chạy `scripts/measure_tokenizer.py --model <spm> --text <file>`
-**Then** script in fertility (token/từ, tách từ theo khoảng trắng), byte/token, và tỷ lệ token chỉ gồm một âm tiết
-**And** chạy được với nhiều `--model` cùng lúc để in bảng so sánh.
-
-**Given** văn bản có ký tự lạ hoặc rỗng
-**When** đo
-**Then** script không lỗi và báo số dòng bị bỏ qua.
-
-### Story 3.2: Train và so sánh các kích thước vocab
-
-As a chủ dự án,
-I want train tokenizer 16k, 20k và 32k trên cùng một hỗn hợp dữ liệu và so sánh,
-So that tôi chọn kích thước vocab có căn cứ.
+As a project owner,
+I want to measure the number of tokens per word and the number of bytes per token of a tokenizer,
+So that I compare tokenizers using numbers.
 
 **Acceptance Criteria:**
 
-**Given** corpus hỗn hợp từ Epic 2 (hoặc corpus Wikipedia hiện có nếu Epic 2 chưa xong)
-**When** tôi chạy `scripts/train_tokenizer_spm.py` với từng `--vocab-size`
-**Then** mỗi tokenizer được lưu với tên chứa kích thước vocab
-**And** `measure_tokenizer.py` in bảng so sánh ba tokenizer.
+**Given** a SentencePiece tokenizer and a Vietnamese text file
+**When** I run `scripts/measure_tokenizer.py --model <spm> --text <file>`
+**Then** the script prints fertility (tokens/word, words split on whitespace), bytes/token, and the fraction of tokens that consist of a single syllable
+**And** it works with several `--model` arguments at once to print a comparison table.
 
-**Given** bảng so sánh
-**When** tôi quyết định kích thước
-**Then** quyết định và số liệu được ghi vào `docs/tokenizer_choice.md`, kèm cảnh báo rằng checkpoint cũ dùng tokenizer khác sẽ không tương thích (NFR5).
+**Given** text with unusual characters or empty text
+**When** measuring
+**Then** the script does not fail and reports the number of skipped lines.
 
-### Story 3.3: So sánh model theo BPB giữa các tokenizer
+### Story 3.2: Train and compare vocab sizes
 
-As a chủ dự án,
-I want train nhanh một model nhỏ với mỗi tokenizer và so BPB,
-So that kích thước vocab được chọn bằng chất lượng thật chứ không chỉ fertility.
+As a project owner,
+I want to train 16k, 20k, and 32k tokenizers on the same data mix and compare them,
+So that I choose the vocab size on solid grounds.
 
 **Acceptance Criteria:**
 
-**Given** ba tokenizer từ Story 3.2 và cấu hình model nhỏ cố định
-**When** tôi chạy `scripts/compare_tokenizers.sh` (train ngắn, cùng số byte dữ liệu)
-**Then** mỗi model được đánh giá bằng `eval_bpb.py` và kết quả ghi vào `results.csv`
-**And** bảng cuối cùng xếp hạng các tokenizer theo BPB.
+**Given** the mixed corpus from Epic 2 (or the existing Wikipedia corpus if Epic 2 is not finished)
+**When** I run `scripts/train_tokenizer_spm.py` with each `--vocab-size`
+**Then** each tokenizer is saved with a name containing the vocab size
+**And** `measure_tokenizer.py` prints a comparison table of the three tokenizers.
 
-**Given** chạy trên CPU
-**When** dùng cờ `--tiny`
-**Then** toàn bộ so sánh hoàn tất với dữ liệu rất nhỏ để kiểm tra pipeline.
+**Given** the comparison table
+**When** I decide on a size
+**Then** the decision and the figures are recorded in `docs/tokenizer_choice.md`, together with a warning that old checkpoints using a different tokenizer will not be compatible (NFR5).
 
-## Epic 4: Công thức train nhỏ gọn và có số đo thật
+### Story 3.3: Compare models by BPB across tokenizers
 
-Chủ dự án lập được kế hoạch train (kích thước, token, thời gian) phù hợp với máy mình, và dùng được các cải tiến kiến trúc đã được kiểm chứng.
+As a project owner,
+I want to quickly train a small model with each tokenizer and compare BPB,
+So that the vocab size is chosen by real quality and not just fertility.
 
-### Story 4.1: Tuỳ chọn weight tying
+**Acceptance Criteria:**
 
-As a chủ dự án,
-I want bật gộp chung embedding vào và ra,
-So that model nhỏ tiết kiệm tham số để dành cho độ sâu.
+**Given** the three tokenizers from Story 3.2 and a fixed small model configuration
+**When** I run `scripts/compare_tokenizers.sh` (short training, same number of data bytes)
+**Then** each model is evaluated with `eval_bpb.py` and the results are written to `results.csv`
+**And** the final table ranks the tokenizers by BPB.
+
+**Given** running on CPU
+**When** using the `--tiny` flag
+**Then** the whole comparison completes with very small data to check the pipeline.
+
+## Epic 4: A compact training recipe with real measurements
+
+The project owner can plan training (size, tokens, time) that fits their machine, and can use architecture improvements that have been validated.
+
+### Story 4.1: Weight tying option
+
+As a project owner,
+I want to turn on tying of the input and output embeddings,
+So that a small model saves parameters to spend on depth.
 
 **Acceptance Criteria:**
 
 **Given** `GPTConfig(tie_embeddings=True)`
-**When** tạo model
-**Then** `lm_head.weight` và `wte.weight` là cùng một tensor và `count_parameters()` giảm đúng bằng `vocab_size × n_embd`
-**And** mặc định `tie_embeddings=False` để checkpoint cũ vẫn nạp được.
+**When** creating the model
+**Then** `lm_head.weight` and `wte.weight` are the same tensor and `count_parameters()` decreases by exactly `vocab_size × n_embd`
+**And** the default is `tie_embeddings=False` so old checkpoints can still be loaded.
 
-**Given** model có tying
-**When** lưu và nạp lại checkpoint
-**Then** logits trước và sau khi nạp giống nhau, có test trong `tests/test_model.py`.
+**Given** a model with tying
+**When** saving and reloading a checkpoint
+**Then** the logits before and after loading are identical, with a test in `tests/test_model.py`.
 
-### Story 4.2: Preset theo độ sâu
+### Story 4.2: Depth-based preset
 
-As a chủ dự án,
-I want đặt kích thước model bằng một tham số độ sâu,
-So that tôi thử các kích thước mà không phải chỉnh tay nhiều hệ số.
+As a project owner,
+I want to set the model size with a single depth parameter,
+So that I can try different sizes without hand-tuning many coefficients.
 
 **Acceptance Criteria:**
 
 **Given** `GPTConfig.from_depth(depth=12, vocab_size=V, block_size=B)`
-**When** gọi
-**Then** hàm trả về cấu hình có `n_layer = depth` và chiều ẩn, số head, số KV head suy ra theo quy tắc được ghi trong docstring (ưu tiên sâu-mỏng)
-**And** số head chia hết chiều ẩn và số KV head chia hết số head.
+**When** called
+**Then** the function returns a configuration with `n_layer = depth` and with the hidden dimension, number of heads, and number of KV heads derived by the rule documented in the docstring (preferring deep-and-thin)
+**And** the number of heads divides the hidden dimension and the number of KV heads divides the number of heads.
 
-**Given** các độ sâu 6, 12, 24
-**When** in số tham số
-**Then** số tham số tăng đơn điệu và có test kiểm tra tính hợp lệ của cấu hình.
+**Given** depths 6, 12, and 24
+**When** printing the parameter counts
+**Then** the parameter count increases monotonically and there is a test that checks configuration validity.
 
-### Story 4.3: Đo throughput theo thiết bị
+### Story 4.3: Measure throughput per device
 
-As a chủ dự án,
-I want đo tokens/giây của model trên máy tôi,
-So that kế hoạch train dựa trên số đo thật.
+As a project owner,
+I want to measure the tokens/second of the model on my machine,
+So that the training plan is based on real measurements.
 
 **Acceptance Criteria:**
 
-**Given** một `GPTConfig` và thiết bị tự nhận (CUDA, MPS hoặc CPU)
-**When** tôi chạy `scripts/bench_throughput.py --steps 20 --warmup 5`
-**Then** script in tokens/giây, bộ nhớ đỉnh (nếu có), thiết bị, dtype và phiên bản torch
-**And** ghi một dòng vào `docs/throughput.md` khi có cờ `--record`.
+**Given** a `GPTConfig` and an auto-detected device (CUDA, MPS, or CPU)
+**When** I run `scripts/bench_throughput.py --steps 20 --warmup 5`
+**Then** the script prints tokens/second, peak memory (if available), device, dtype, and torch version
+**And** appends a row to `docs/throughput.md` when the `--record` flag is given.
 
-**Given** thiết bị không hỗ trợ bf16
-**When** chạy
-**Then** script chuyển sang fp32 và ghi rõ điều đó trong kết quả.
+**Given** a device that does not support bf16
+**When** running
+**Then** the script falls back to fp32 and states this explicitly in the result.
 
-### Story 4.4: Công cụ lập kế hoạch ngân sách token
+### Story 4.4: Token budget planning tool
 
-As a chủ dự án,
-I want nhập số tham số và lượng dữ liệu đang có rồi biết cần bao nhiêu token và bao nhiêu epoch,
-So that tôi không train thiếu hoặc lặp dữ liệu quá mức.
+As a project owner,
+I want to enter the parameter count and the amount of data I have and learn how many tokens and epochs are needed,
+So that I do not undertrain or repeat data excessively.
 
 **Acceptance Criteria:**
 
 **Given** `scripts/plan_training.py --params 125e6 --tokens-available 1.1e9 --tokens-per-param 20`
-**When** chạy
-**Then** script in token mục tiêu (2,5 tỷ), số epoch cần (≈2,3) và FLOPs xấp xỉ theo 6·N·D
-**And** in cảnh báo khi số epoch vượt 4 và gợi ý thêm dữ liệu.
+**When** running
+**Then** the script prints the target tokens (2.5 billion), the number of epochs needed (≈2.3), and approximate FLOPs by 6·N·D
+**And** prints a warning when the number of epochs exceeds 4 and suggests adding data.
 
-**Given** có kết quả đo throughput (Story 4.3)
-**When** truyền `--throughput <tokens/s>`
-**Then** script in thêm thời gian train ước tính.
+**Given** throughput measurement results (Story 4.3)
+**When** passing `--throughput <tokens/s>`
+**Then** the script additionally prints the estimated training time.
 
-### Story 4.5: QK-Norm và Muon (thử nghiệm)
+### Story 4.5: QK-Norm and Muon (experimental)
 
-As a chủ dự án,
-I want bật thử QK-Norm và optimizer Muon bằng cờ,
-So that tôi kiểm tra xem các mẹo của modded-nanogpt có giúp ở quy mô của tôi không.
+As a project owner,
+I want to try QK-Norm and the Muon optimizer via flags,
+So that I can check whether the modded-nanogpt tricks help at my scale.
 
 **Acceptance Criteria:**
 
 **Given** `GPTConfig(qk_norm=True)`
-**When** forward
-**Then** Q và K được chuẩn hoá trước khi tính attention và mặc định `False` không đổi kết quả hiện có (test hồi quy).
+**When** running forward
+**Then** Q and K are normalized before computing attention, and the default `False` does not change existing results (regression test).
 
 **Given** `scripts/train.py --optimizer muon`
-**When** train 50 bước trên dữ liệu nhỏ
-**Then** loss giảm và giữ AdamW cho embedding và tham số 1 chiều
-**And** tài liệu nêu rõ đây là tính năng thử nghiệm, có so sánh BPB với AdamW trong `results.csv`.
+**When** training for 50 steps on small data
+**Then** the loss decreases and AdamW is kept for the embeddings and 1-D parameters
+**And** the documentation states clearly that this is an experimental feature, with a BPB comparison against AdamW in `results.csv`.
 
-## Epic 5: Model biết trò chuyện bằng tiếng Việt (SFT)
+## Epic 5: A model that can chat in Vietnamese (SFT)
 
-Chủ dự án tinh chỉnh checkpoint đã pretrain thành model trả lời câu hỏi, và so sánh được các lựa chọn SFT bằng bộ đánh giá.
+The project owner fine-tunes a pretrained checkpoint into a question-answering model, and can compare SFT choices using the evaluation suite.
 
-### Story 5.1: Chuẩn bị dữ liệu SFT có chat template
+### Story 5.1: Prepare SFT data with a chat template
 
-As a chủ dự án,
-I want chuyển bộ instruction tiếng Việt sang định dạng train với chat template cố định,
-So that tôi tinh chỉnh model bằng pipeline fine-tune hiện có.
-
-**Acceptance Criteria:**
-
-**Given** một tệp JSONL kiểu vi-alpaca (`instruction`, `input`, `output`) hoặc Aya
-**When** tôi chạy `scripts/prepare_sft.py --in <file> --out data/processed/sft`
-**Then** mỗi mẫu được đóng khung bằng token đặc biệt người dùng/trợ lý do template định nghĩa, và tệp `.bin` kèm mặt nạ vị trí câu trả lời được tạo
-**And** `SOURCE.json` ghi tên bộ dữ liệu, giấy phép, cảnh báo "dịch máy hoặc do model sinh" khi áp dụng.
-
-**Given** mẫu dài hơn `block_size`
-**When** chuẩn bị
-**Then** mẫu bị bỏ và số mẫu bỏ được in ra.
-
-### Story 5.2: SFT với tuỳ chọn che prompt
-
-As a chủ dự án,
-I want chọn tính loss chỉ trên câu trả lời hoặc trên cả prompt,
-So that tôi thử lựa chọn nào tốt hơn cho dữ liệu nhỏ.
+As a project owner,
+I want to convert a Vietnamese instruction dataset into a training format with a fixed chat template,
+So that I fine-tune the model with the existing fine-tune pipeline.
 
 **Acceptance Criteria:**
 
-**Given** dữ liệu từ Story 5.1 và `--init_from <ckpt>`
-**When** tôi chạy `scripts/train.py --sft --mask-prompt` hoặc `--no-mask-prompt`
-**Then** với `--mask-prompt` loss bằng 0 ở token prompt (kiểm bằng test với batch nhỏ) và với `--no-mask-prompt` loss tính trên mọi token
-**And** cờ mặc định là `--mask-prompt`.
+**Given** a vi-alpaca-style JSONL file (`instruction`, `input`, `output`) or Aya
+**When** I run `scripts/prepare_sft.py --in <file> --out data/processed/sft`
+**Then** each sample is framed with the user/assistant special tokens defined by the template, and a `.bin` file is produced together with a mask of the answer positions
+**And** `SOURCE.json` records the dataset name, license, and the warning "machine-translated or model-generated" where applicable.
 
-**Given** `tests/test_finetune.py` hiện có
-**When** chạy test
-**Then** các test cũ vẫn qua.
+**Given** a sample longer than `block_size`
+**When** preparing
+**Then** the sample is dropped and the number of dropped samples is printed.
 
-### Story 5.3: So sánh che và không che prompt
+### Story 5.2: SFT with a prompt-masking option
 
-As a chủ dự án,
-I want so sánh hai cách SFT trên cùng dữ liệu bằng bộ đánh giá,
-So that tôi chọn cách làm bằng số liệu.
-
-**Acceptance Criteria:**
-
-**Given** hai checkpoint SFT (có và không che prompt) cùng seed và cùng số bước
-**When** tôi chạy `eval_bpb.py` trên một tập hội thoại giữ lại và `eval_cloze.py`
-**Then** kết quả hai model nằm cạnh nhau trong `results.csv`
-**And** kết luận ngắn được ghi vào `docs/sft_notes.md` kể cả khi chênh lệch không đáng kể.
-
-### Story 5.4: CLI hội thoại tương tác
-
-As a chủ dự án,
-I want trò chuyện với model trong terminal,
-So that tôi thử câu trả lời thật thay vì chỉ nhìn số.
+As a project owner,
+I want to choose whether the loss is computed only on the answer or on the prompt as well,
+So that I can test which choice works better for small data.
 
 **Acceptance Criteria:**
 
-**Given** một checkpoint SFT
-**When** tôi chạy `scripts/chat.py --ckpt <path>`
-**Then** chương trình nhận từng lượt, áp chat template, sinh câu trả lời bằng `generate()` và dừng tại token kết thúc lượt
-**And** lệnh `/reset` xoá ngữ cảnh, `/quit` thoát.
+**Given** data from Story 5.1 and `--init_from <ckpt>`
+**When** I run `scripts/train.py --sft --mask-prompt` or `--no-mask-prompt`
+**Then** with `--mask-prompt` the loss is 0 at prompt tokens (checked by a test with a small batch), and with `--no-mask-prompt` the loss is computed on every token
+**And** the default flag is `--mask-prompt`.
 
-**Given** ngữ cảnh vượt `block_size`
-**When** trò chuyện tiếp
-**Then** các lượt cũ nhất bị cắt đi mà không báo lỗi.
+**Given** the existing `tests/test_finetune.py`
+**When** running the tests
+**Then** the old tests still pass.
 
-## Epic 6: Kính hiển vi dự đoán
+### Story 5.3: Compare masked and unmasked prompts
 
-Chủ dự án nhìn thấy model đang "nghĩ" gì ở mỗi token: xác suất, tầng nào quyết định, chỗ nào không chắc, và xác suất có đáng tin không.
-
-### Story 6.1: Hiển thị top-5 xác suất khi sinh
-
-As a chủ dự án,
-I want thấy 5 token có xác suất cao nhất ở mỗi bước sinh,
-So that tôi thấy phân phối nhọn hay phẳng và hiểu vì sao model chọn token đó.
+As a project owner,
+I want to compare the two SFT approaches on the same data using the evaluation suite,
+So that I choose the approach based on numbers.
 
 **Acceptance Criteria:**
 
-**Given** một checkpoint và prompt
-**When** tôi chạy `scripts/sample.py --show-probs`
-**Then** mỗi bước in token được chọn và 5 token đầu bảng cùng xác suất sau khi áp dụng temperature, top-k, top-p
-**And** không có cờ này, đầu ra giữ nguyên như hiện nay.
+**Given** two SFT checkpoints (with and without prompt masking) with the same seed and the same number of steps
+**When** I run `eval_bpb.py` on a held-out conversation set and `eval_cloze.py`
+**Then** the results of the two models appear side by side in `results.csv`
+**And** a short conclusion is written to `docs/sft_notes.md` even when the difference is negligible.
 
-**Given** repetition penalty bật
-**When** hiển thị
-**Then** xác suất in ra là xác suất sau penalty, và dòng đầu ghi rõ điều đó.
+### Story 5.4: Interactive chat CLI
 
-### Story 6.2: Logit lens theo tầng
-
-As a chủ dự án,
-I want thấy ở tầng nào token đúng bắt đầu thắng,
-So that tôi hiểu câu trả lời hình thành ở đâu trong mạng.
+As a project owner,
+I want to chat with the model in the terminal,
+So that I try real answers instead of only looking at numbers.
 
 **Acceptance Criteria:**
 
-**Given** một prompt và token mục tiêu
-**When** tôi chạy `scripts/logit_lens.py --ckpt <path> --prompt "..." --target "..."`
-**Then** script chiếu residual sau mỗi tầng qua `ln_f` và `lm_head`, in hạng và xác suất của token mục tiêu theo tầng, và lưu biểu đồ PNG
-**And** tầng cuối cho đúng logits của `forward()` thông thường (kiểm bằng test).
+**Given** an SFT checkpoint
+**When** I run `scripts/chat.py --ckpt <path>`
+**Then** the program accepts each turn, applies the chat template, generates a reply with `generate()`, and stops at the end-of-turn token
+**And** the `/reset` command clears the context and `/quit` exits.
 
-### Story 6.3: Tô màu entropy trên đoạn văn
+**Given** the context exceeds `block_size`
+**When** the conversation continues
+**Then** the oldest turns are truncated without raising an error.
 
-As a chủ dự án,
-I want thấy token nào model không chắc trong một đoạn văn,
-So that tôi liên hệ độ không chắc với sự kiện hiếm và lỗi.
+## Epic 6: The prediction microscope
 
-**Acceptance Criteria:**
+The project owner sees what the model is "thinking" at each token: the probabilities, which layer decides, where it is uncertain, and whether the probabilities can be trusted.
 
-**Given** một đoạn văn
-**When** tôi chạy `scripts/entropy_view.py --ckpt <path> --file <txt>`
-**Then** script xuất một tệp HTML tự chứa, mỗi token tô màu theo entropy, tooltip hiện entropy và xác suất token thật
-**And** HTML dùng được ở chế độ sáng và tối, không tải tài nguyên ngoài.
+### Story 6.1: Show top-5 probabilities during generation
 
-### Story 6.4: Biểu đồ độ tin cậy
-
-As a chủ dự án,
-I want biết xác suất model gán có khớp tỷ lệ đúng thực tế không,
-So that tôi đánh giá được model có "biết mình biết gì" và thấy tác động của SFT lên calibration.
+As a project owner,
+I want to see the 5 highest-probability tokens at each generation step,
+So that I can see whether the distribution is peaked or flat and understand why the model chose that token.
 
 **Acceptance Criteria:**
 
-**Given** `val.bin` và checkpoint
-**When** tôi chạy `scripts/calibration.py --ckpt <path>`
-**Then** script chia xác suất của token dự đoán top-1 thành 10 khoảng, tính độ chính xác trong từng khoảng, in ECE và lưu biểu đồ PNG
-**And** truyền hai checkpoint bất kỳ (ví dụ trước và sau SFT) thì vẽ hai đường trên cùng biểu đồ.
+**Given** a checkpoint and a prompt
+**When** I run `scripts/sample.py --show-probs`
+**Then** each step prints the chosen token and the top 5 tokens with their probabilities after applying temperature, top-k, and top-p
+**And** without this flag, the output stays as it is today.
 
-## Epic 7: Phòng thí nghiệm kiểm chứng cơ chế
+**Given** repetition penalty is enabled
+**When** displaying
+**Then** the printed probabilities are the post-penalty probabilities, and the first line states this explicitly.
 
-Chủ dự án tự tái hiện ở quy mô nhỏ các hiện tượng trong tài liệu nghiên cứu: grokking, nhớ sự kiện theo tần suất, reversal curse, induction head.
+### Story 6.2: Logit lens by layer
 
-### Story 7.1: Phòng thí nghiệm grokking mod 97
+As a project owner,
+I want to see at which layer the correct token starts to win,
+So that I understand where in the network the answer forms.
 
-As a chủ dự án,
-I want train một model 2 tầng trên phép cộng modulo 97 và xem accuracy train/val theo bước,
-So that tôi thấy tận mắt model chuyển từ học thuộc sang thuật toán.
+**Acceptance Criteria:**
+
+**Given** a prompt and a target token
+**When** I run `scripts/logit_lens.py --ckpt <path> --prompt "..." --target "..."`
+**Then** the script projects the residual after each layer through `ln_f` and `lm_head`, prints the rank and probability of the target token by layer, and saves a PNG plot
+**And** the last layer gives exactly the logits of the normal `forward()` (checked by a test).
+
+### Story 6.3: Entropy coloring on a passage
+
+As a project owner,
+I want to see which tokens the model is uncertain about in a passage,
+So that I can relate uncertainty to rare facts and errors.
+
+**Acceptance Criteria:**
+
+**Given** a passage
+**When** I run `scripts/entropy_view.py --ckpt <path> --file <txt>`
+**Then** the script outputs a self-contained HTML file, with each token colored by entropy and a tooltip showing the entropy and the probability of the actual token
+**And** the HTML works in both light and dark modes and loads no external resources.
+
+### Story 6.4: Reliability diagram
+
+As a project owner,
+I want to know whether the probabilities the model assigns match the actual fraction correct,
+So that I can assess whether the model "knows what it knows" and see the effect of SFT on calibration.
+
+**Acceptance Criteria:**
+
+**Given** `val.bin` and a checkpoint
+**When** I run `scripts/calibration.py --ckpt <path>`
+**Then** the script divides the probabilities of the top-1 predicted token into 10 bins, computes the accuracy within each bin, prints the ECE, and saves a PNG plot
+**And** passing any two checkpoints (for example before and after SFT) draws two curves on the same plot.
+
+## Epic 7: A mechanism verification lab
+
+The project owner reproduces, at small scale, the phenomena described in the research literature: grokking, fact memorization by frequency, the reversal curse, and induction heads.
+
+### Story 7.1: Grokking lab, mod 97
+
+As a project owner,
+I want to train a 2-layer model on addition modulo 97 and watch train/val accuracy by step,
+So that I see with my own eyes the model transition from memorization to an algorithm.
 
 **Acceptance Criteria:**
 
 **Given** `scripts/grokking_lab.py --mod 97 --train-frac 0.3 --weight-decay 1.0`
-**When** chạy
-**Then** script tạo dataset dạng văn bản `a + b = c`, train model nhỏ và ghi train/val accuracy theo bước ra CSV và PNG
-**And** chạy được trên CPU trong vài phút với cờ `--tiny`.
+**When** running
+**Then** the script creates a text-format dataset `a + b = c`, trains a small model, and writes train/val accuracy by step to CSV and PNG
+**And** it runs on CPU within a few minutes with the `--tiny` flag.
 
-**Given** kết quả
-**When** val accuracy chưa vượt 90% sau số bước tối đa
-**Then** script vẫn ghi đầy đủ kết quả và in rõ "chưa quan sát được grokking" thay vì kết luận sai.
+**Given** the results
+**When** val accuracy has not exceeded 90% after the maximum number of steps
+**Then** the script still writes the full results and clearly prints "grokking not observed" instead of drawing a wrong conclusion.
 
-### Story 7.2: Nhớ sự kiện theo tần suất xuất hiện
+### Story 7.2: Fact memorization by frequency of occurrence
 
-As a chủ dự án,
-I want đo độ chính xác nhớ lại các sự kiện giả xuất hiện 1, 2, 5, 10, 50 lần,
-So that tôi kiểm chứng ở quy mô nhỏ ý "sự kiện hiếm thì dễ bị bịa".
+As a project owner,
+I want to measure the recall accuracy of fake facts that appear 1, 2, 5, 10, and 50 times,
+So that I can verify at small scale the idea that "rare facts are more likely to be fabricated".
 
 **Acceptance Criteria:**
 
 **Given** `scripts/fact_frequency_lab.py --n-facts 500`
-**When** chạy
-**Then** script tạo các sự kiện giả "thủ đô của X là Y" với X, Y bịa ra, trộn vào dữ liệu theo tần suất đã định, train, rồi in độ chính xác nhớ lại theo từng mức tần suất
-**And** kết quả lưu CSV và PNG, cùng seed cho kết quả giống nhau.
+**When** running
+**Then** the script creates fake facts of the form "thủ đô của X là Y" (the capital of X is Y) with made-up X and Y, mixes them into the data at the specified frequencies, trains, and then prints the recall accuracy at each frequency level
+**And** results are saved to CSV and PNG, and the same seed gives identical results.
 
-**Given** các sự kiện dùng tên bịa
-**When** đánh giá
-**Then** không có rò rỉ từ dữ liệu thật (kiểm bằng test: tên không xuất hiện trong corpus mẫu).
+**Given** the facts use made-up names
+**When** evaluating
+**Then** there is no leakage from real data (checked by a test: the names do not appear in the sample corpus).
 
-### Story 7.3: Reversal curse bằng tiếng Việt
+### Story 7.3: Reversal curse in Vietnamese
 
-As a chủ dự án,
-I want thử xem model có trả lời được câu ngược không,
-So that tôi tự kiểm chứng reversal curse trên model của mình.
-
-**Acceptance Criteria:**
-
-**Given** tập sự kiện bịa dạng "A là mẹ của B" và hai bộ câu hỏi (xuôi, ngược)
-**When** tôi chạy `scripts/reversal_lab.py`
-**Then** script train model nhỏ chỉ trên chiều xuôi, rồi báo độ chính xác ở câu hỏi xuôi và ngược
-**And** có cờ `--reverse-augment` thêm câu đảo chiều vào dữ liệu và báo lại kết quả để so sánh.
-
-### Story 7.4: Phát hiện induction head và ablation từng head
-
-As a chủ dự án,
-I want tìm các head thực hiện "sao chép theo ngữ cảnh" và xem bỏ chúng thì loss tăng bao nhiêu,
-So that tôi có bằng chứng can thiệp chứ không chỉ quan sát.
+As a project owner,
+I want to test whether the model can answer reversed questions,
+So that I verify the reversal curse myself on my own model.
 
 **Acceptance Criteria:**
 
-**Given** một checkpoint
-**When** tôi chạy `scripts/induction_heads.py --ckpt <path>`
-**Then** script sinh chuỗi token ngẫu nhiên lặp lại hai lần, đo mức giảm loss ở lần lặp thứ hai và điểm induction của từng head
-**And** quét ablation: đặt đầu ra từng head về 0, ghi mức tăng loss, in bảng xếp hạng head.
+**Given** a set of made-up facts of the form "A là mẹ của B" (A is the mother of B) and two question sets (forward, reverse)
+**When** I run `scripts/reversal_lab.py`
+**Then** the script trains a small model on the forward direction only, then reports the accuracy on forward and reverse questions
+**And** a `--reverse-augment` flag adds reversed sentences to the data and reports the results again for comparison.
 
-**Given** model có GQA
-**When** ablation
-**Then** script xử lý đúng việc các head dùng chung K/V (ablate theo đầu ra attention của từng query head).
+### Story 7.4: Induction head detection and per-head ablation
 
-## Epic 8: Công bố và giải thích
-
-Người ngoài đọc được model card rõ ràng về dữ liệu và giấy phép, và một bài giải thích tiếng Anh gắn với thí nghiệm chạy được.
-
-### Story 8.1: Model card và giấy phép dữ liệu
-
-As a chủ dự án,
-I want sinh model card từ `meta.json` và kết quả đánh giá,
-So that người dùng biết model học từ đâu và dùng theo điều kiện nào.
+As a project owner,
+I want to find the heads that perform "in-context copying" and see how much the loss increases when they are removed,
+So that I have interventional evidence and not just observation.
 
 **Acceptance Criteria:**
 
-**Given** một checkpoint, `meta.json` có mục `sources` và `results.csv`
-**When** tôi chạy `scripts/make_model_card.py --ckpt <path>`
-**Then** `MODEL_CARD.md` liệt kê kiến trúc, số tham số, nguồn dữ liệu, giấy phép từng nguồn, kết quả đánh giá chính và giới hạn đã biết
-**And** có mục "Câu hỏi pháp lý còn mở" nêu rõ CC BY-SA có thể ràng buộc việc phát hành trọng số và chưa có kết luận.
+**Given** a checkpoint
+**When** I run `scripts/induction_heads.py --ckpt <path>`
+**Then** the script generates a random token sequence repeated twice, measures the loss drop on the second repetition and the induction score of each head
+**And** runs an ablation sweep: set each head's output to 0, record the loss increase, and print a ranking table of heads.
 
-**Given** `meta.json` thiếu thông tin giấy phép
-**When** sinh model card
-**Then** script dừng và liệt kê nguồn nào còn thiếu.
+**Given** a model with GQA
+**When** ablating
+**Then** the script correctly handles heads sharing K/V (ablating by the attention output of each query head).
 
-### Story 8.2: Bài giải thích tiếng Anh gắn với thí nghiệm
+## Epic 8: Publication and explanation
 
-As a người đọc bên ngoài,
-I want đọc một bài tiếng Anh giải thích cách LLM dự đoán token kèm lệnh chạy lại thí nghiệm,
-So that tôi hiểu cơ chế và tự kiểm chứng.
+An outside reader can read a clear model card about the data and licenses, and an English explainer tied to runnable experiments.
+
+### Story 8.1: Model card and data licenses
+
+As a project owner,
+I want to generate a model card from `meta.json` and the evaluation results,
+So that users know where the model learned from and under what conditions they may use it.
 
 **Acceptance Criteria:**
 
-**Given** các công cụ ở Epic 6 và Epic 7 đã có
-**When** tôi đọc `docs/how_llms_predict.md`
-**Then** mỗi chương có một thí nghiệm kèm lệnh cụ thể và hình kết quả: phân phối xác suất, logit lens, grokking, nhớ theo tần suất
-**And** mỗi khẳng định về cơ chế trích dẫn nguồn từ `research.md` và dùng cách nói "biểu diễn/tính toán ở quy mô nhỏ" (NFR8).
+**Given** a checkpoint, a `meta.json` with a `sources` entry, and `results.csv`
+**When** I run `scripts/make_model_card.py --ckpt <path>`
+**Then** `MODEL_CARD.md` lists the architecture, parameter count, data sources, the license of each source, the main evaluation results, and the known limitations
+**And** it has an "Open legal questions" section stating explicitly that CC BY-SA may constrain the release of the weights and that there is no conclusion yet.
 
-**Given** bài viết có ví dụ ví von (nén, dự báo thời tiết, thám tử)
-**When** dùng
-**Then** mỗi ví von nêu rõ điểm giống và điểm khác, không dùng để thay cho bằng chứng.
+**Given** `meta.json` is missing license information
+**When** generating the model card
+**Then** the script stops and lists which sources are still missing.
+
+### Story 8.2: English explainer tied to experiments
+
+As an outside reader,
+I want to read an English article explaining how an LLM predicts tokens, with commands to rerun the experiments,
+So that I understand the mechanism and can verify it myself.
+
+**Acceptance Criteria:**
+
+**Given** the tools from Epic 6 and Epic 7 exist
+**When** I read `docs/how_llms_predict.md`
+**Then** each chapter has an experiment with a concrete command and a result figure: probability distribution, logit lens, grokking, memorization by frequency
+**And** every claim about the mechanism cites a source from `research.md` and uses the phrasing "representation/computation at small scale" (NFR8).
+
+**Given** the article contains analogies (compression, weather forecasting, detective)
+**When** used
+**Then** each analogy states explicitly where it is similar and where it differs, and is not used as a substitute for evidence.
