@@ -20,6 +20,9 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+news = [
+    "pyarrow>=14",   # read .parquet news dumps
+]
 wikiextract = [
     "wikiextractor @ git+https://github.com/attardi/wikiextractor.git@ab8988ebfa9e4557411f3d4c0f4ccda139e18875",
 ]
@@ -34,6 +37,8 @@ ntok-train = "ntokenizer.cli.train:main"
 ntok-sample = "ntokenizer.cli.sample:main"
 ntok-make-meta = "ntokenizer.cli.make_meta:main"
 ntok-count-tokens = "ntokenizer.cli.count_tokens:main"
+ntok-build-news-corpus = "ntokenizer.cli.build_news_corpus:main"
+ntok-mix-corpora = "ntokenizer.cli.mix_corpora:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

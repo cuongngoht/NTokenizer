@@ -54,6 +54,8 @@ NTokenizer/
 │   ├── train_tokenizer_spm.py                   # train BPE tokenizer
 │   ├── test_tokenizer.py                        # verify encode/decode round-trip
 │   ├── count_tokens.py                          # count the tokens of a prompt
+│   ├── build_news_corpus.py                     # clean local news dumps into a corpus
+│   ├── mix_corpora.py                           # interleave Wikipedia + news
 │   ├── inspect_vocab.py                         # explore the vocabulary
 │   ├── prepare_dataset.py                       # encode corpus → binary files
 │   ├── train.py                                 # training loop (AdamW + cosine LR)

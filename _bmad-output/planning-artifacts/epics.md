@@ -771,7 +771,9 @@ So that I understand the mechanism and can verify it myself.
 
 The project owner assembles a large, clean, deduplicated Vietnamese training corpus from Wikipedia (JSON) and online news, stored as Markdown with provenance, collected within the legal limits found by research, and never redistributed.
 
-Research: `_bmad-output/planning-artifacts/research/technical-vietnamese-news-and-wikipedia-json-corpu-2026-11-08/research.md` (recommendations N1–N8). Re-check the official texts of IP Law Art. 7(5) and Decree 134/2026 before starting Stories 9.5 and 9.6.
+Research: `_bmad-output/planning-artifacts/research/technical-vietnamese-news-and-wikipedia-json-corpu-2026-11-08/research.md` (recommendations N1–N8).
+
+**Scope decision (2026-11-08):** the goal is only a corpus that can be trained on locally; nothing is published. The minimum path is done: `scripts/build_news_corpus.py` (clean local news dumps) and `scripts/mix_corpora.py` (interleave Wikipedia + news), see `docs/DEVELOPMENT.md` Step 1. Stories 9.3, 9.6 and 9.9 are deferred; 9.1 and 9.2 (Markdown documents) are only needed if Story 9.8 shows Markdown helps. Re-check the official texts of IP Law Art. 7(5) and Decree 134/2026 before starting Stories 9.5 and 9.6.
 
 ### Story 9.1: Markdown document schema, manifest and no-redistribution guard
 
@@ -811,6 +813,8 @@ So that Wikipedia joins the corpus with correct CC BY-SA 4.0 attribution.
 
 ### Story 9.3: Wikipedia Enterprise HTML to Markdown with tables (optional)
 
+_Status: deferred — not needed to train locally._
+
 As a project owner,
 I want Wikipedia converted from Enterprise HTML so headings, lists and tables survive,
 So that structured knowledge (tables, infoboxes) is not lost.
@@ -827,6 +831,8 @@ So that structured knowledge (tables, infoboxes) is not lost.
 **Then** Story 9.2 output is used and this story is skipped without errors.
 
 ### Story 9.4: Ingest existing Vietnamese news corpora
+
+_Status: done in minimal form — `scripts/build_news_corpus.py` writes plain-text corpus format (not the Story 9.1 Markdown schema): auto-detected fields, NFC, HTML/credit stripping, exact-duplicate removal, `--limit`; `tests/test_news.py`._
 
 As a project owner,
 I want the large existing news corpora converted into my document schema,
@@ -862,6 +868,8 @@ So that I collect news without loading publishers' servers or bypassing their co
 
 ### Story 9.6: Polite live crawler for recent articles (optional)
 
+_Status: deferred — not needed to train locally._
+
 As a project owner,
 I want to collect recent articles only from sites that allow it,
 So that the corpus stays current without breaking site rules.
@@ -878,6 +886,8 @@ So that the corpus stays current without breaking site rules.
 **Then** the URL is skipped and logged, and a test covers allow and disallow cases with a fixture robots.txt.
 
 ### Story 9.7: Cross-source dedup and corpus export
+
+_Status: partly done — `scripts/mix_corpora.py` interleaves sources over the whole file (so the validation split holds every source) with per-source `--repeat`. Cross-source MinHash dedup and Markdown export remain open._
 
 As a project owner,
 I want all sources deduplicated together and exported as one training corpus,
@@ -908,6 +918,8 @@ So that the final mix and format are chosen on evidence, since research found no
 **And** the chosen ratio and format, with the numbers, are written to `docs/data_mix.md`.
 
 ### Story 9.9: Data card and legal note
+
+_Status: deferred — not needed to train locally._
 
 As a project owner,
 I want a data card that states what was collected, under which rules, and what is not shared,

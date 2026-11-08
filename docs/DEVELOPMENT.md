@@ -105,6 +105,49 @@ wikiextractor data/raw/viwiki-latest-pages-articles.xml.bz2 \
               --output data/interim/extracted/ --json --quiet
 ```
 
+### Optional — add Vietnamese news text
+
+Wikipedia alone is small (~1.1M articles). To train on more text, add news
+from datasets you have **downloaded locally** (for example BKAINewsCorpus, a
+binhvq news-corpus mirror, or VietNews). News text is for local training
+only: keep it under `data/` (gitignored) and do not commit or redistribute
+it. See the research report in
+`_bmad-output/planning-artifacts/research/technical-vietnamese-news-and-wikipedia-json-corpu-2026-11-08/`
+for the legal background.
+
+```bash
+pip install -e ".[news]"   # pyarrow, only needed for .parquet inputs
+
+# 1. Clean news dumps into corpus format (.jsonl, .jsonl.gz, .json, .parquet, .txt)
+python scripts/build_news_corpus.py --input data/raw/news/*.parquet \
+    --output data/interim/news_corpus.txt
+#    --text-field / --title-field if the fields are not content/text/body and title
+#    --limit 2000000 to cap the number of articles
+
+# 2. Interleave Wikipedia and news into one training file
+#    (--repeat 2 1 reads Wikipedia twice, i.e. upsamples it)
+python scripts/mix_corpora.py \
+    --input data/interim/corpus.txt data/interim/news_corpus.txt \
+    --repeat 2 1 --output data/interim/corpus_mix.txt
+
+# 3. Use the mixed corpus in the next steps
+python scripts/train_tokenizer_spm.py --input data/interim/corpus_mix.txt --name vi_mix_bpe
+python scripts/prepare_dataset.py --corpus data/interim/corpus_mix.txt \
+    --model artifacts/tokenizer/vi_mix_bpe_<N>k.model
+```
+
+`build_news_corpus.py` normalizes text to Unicode NFC, strips HTML,
+drops short lines and photo/source credits (`Ảnh: ...`, `Nguồn: ...`),
+drops articles shorter than `--min-chars` (200), and removes exact duplicate
+articles (common with syndicated news). Articles are separated by a blank
+line, which the encoder and the tokenizer trainer ignore.
+
+`mix_corpora.py` exists because `prepare_dataset.py` uses the **last 10%** of
+tokens as validation: concatenating files would make validation all-news.
+It spreads blocks of every source randomly over the whole file (seeded),
+so train and validation contain both. Files without blank-line separators
+(the Wikipedia `corpus.txt`) are cut into 50-line blocks.
+
 ---
 
 ## Step 2 — Train BPE tokenizer
