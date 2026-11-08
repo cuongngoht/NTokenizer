@@ -1,0 +1,57 @@
+{
+  "today": "2026-11-08",
+  "claims": [
+    {
+      "claim": "RLVR reweights base abilities",
+      "class": "sota",
+      "pub_date": "2025-04",
+      "recheck": "2025-10-01",
+      "stale": true
+    },
+    {
+      "claim": "Test-time compute vs 14x model",
+      "class": "sota",
+      "pub_date": "2025-04",
+      "recheck": "2025-10-01",
+      "stale": true
+    },
+    {
+      "claim": "CoT faithfulness 25-39%",
+      "class": "sota",
+      "pub_date": "2025-04",
+      "recheck": "2025-10-01",
+      "stale": true
+    },
+    {
+      "claim": "Claude 3.5 Haiku circuits",
+      "class": "sota",
+      "pub_date": "2025-03",
+      "recheck": "2025-09-01",
+      "stale": true
+    },
+    {
+      "claim": "DeepSeek-R1 Nature",
+      "class": "sota",
+      "pub_date": "2025-09",
+      "recheck": "2026-03-01",
+      "stale": true
+    },
+    {
+      "claim": "Hallucination singleton bound",
+      "class": "theory",
+      "pub_date": "2025-09",
+      "recheck": "2027-09-01",
+      "stale": false
+    },
+    {
+      "claim": "GSM-Symbolic dispute",
+      "class": "debate",
+      "pub_date": "2026-05",
+      "recheck": "2026-11-01",
+      "stale": true
+    }
+  ],
+  "stale_count": 6,
+  "earliest_recheck": "2025-09-01",
+  "no_window_classes": []
+}
