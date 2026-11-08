@@ -47,7 +47,7 @@ python scripts/sample.py  # generate text from a checkpoint
 
 ## Research docs
 
-- `docs/why_llms_are_accurate.vi.md` — why next-token predictors answer
-  accurately (Vietnamese).
+- `docs/why_llms_are_accurate.md` (English) and `docs/why_llms_are_accurate.vi.md`
+  (Vietnamese twin) — why next-token predictors answer accurately.
 - Deep-research runs live in `_bmad-output/planning-artifacts/research/`.
 - Brainstorming sessions live in `_bmad-output/brainstorming/`.
