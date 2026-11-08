@@ -1,8 +1,8 @@
 ---
-title: 'technical research: Xây LLM tiếng Việt từ dữ liệu Wikipedia'
+title: 'technical research: Building a Vietnamese LLM from Wikipedia data'
 type: 'technical'
 topic: 'Build a Vietnamese LLM from Wikipedia data - feasibility and roadmap'
-decision: 'Có nên / làm thế nào để mở rộng NTokenizer (GPT chỉ train trên viwiki) thành một LM tiếng Việt hữu ích; làm cơ sở cho epic'
+decision: 'Whether and how to extend NTokenizer (a GPT trained only on viwiki) into a useful Vietnamese LM; basis for an epic'
 source: 'native run (4 web-search assistants, 1 round each)'
 status: complete
 preset: 'standard'
@@ -13,261 +13,274 @@ claims_verified: 10
 claims_unverified: 5
 ---
 
-# Nghiên cứu kỹ thuật: Xây LLM tiếng Việt từ dữ liệu Wikipedia
+# Technical research: Building a Vietnamese LLM from Wikipedia data
 
-**Quyết định phục vụ:** có nên tiếp tục xây model từ Wikipedia không, và lộ
-trình nào để biến NTokenizer thành một LM tiếng Việt hữu ích. Kết quả dùng làm
-đầu vào cho epic.
+**Decision served:** whether to keep building the model from Wikipedia, and
+which roadmap turns NTokenizer into a useful Vietnamese LM. The results feed
+into an epic.
 
-> **Giới hạn của lần chạy:** mạng của phiên chỉ mở được `github.com`;
-> `huggingface.co`, `arxiv.org`, các trang Wikimedia và `aclanthology.org` bị
-> chặn. Số liệu từ những nguồn đó lấy qua đoạn trích tìm kiếm, nên độ tin cậy
-> chỉ ở mức **medium/low**. Mỗi nhánh chạy 1 vòng, chưa kiểm chứng chéo độc
-> lập.
+> **Limits of this run:** the session's network could only reach `github.com`;
+> `huggingface.co`, `arxiv.org`, the Wikimedia sites and `aclanthology.org` were
+> blocked. Figures from those sources were obtained through search snippets, so
+> confidence is only **medium/low**. Each branch ran 1 round, with no
+> independent cross-verification.
 
-## Tóm tắt điều hành
+## Executive summary
 
-**Kết luận:** **Nên làm, nhưng đừng chỉ dùng Wikipedia.**
+**Conclusion:** **Worth doing, but do not use Wikipedia alone.**
 
-- **Wikipedia rất tốt để học và làm nền**: sạch, có cấu trúc, giấy phép rõ.
-  Nhưng nó **quá nhỏ** để ra một model đa dụng. Viwiki có khoảng 1,1 triệu bài
-  [1] và khoảng 275 triệu token (có thể đếm theo từ) [2]. Con số này nhỏ hơn
-  khoảng **200 lần** so với phần tiếng Việt của FineWeb-2 (50,9 tỷ) [5] hay
-  CulturaX (55,4 tỷ token) [4].
-- **PhoGPT**, model tiếng Việt train từ đầu duy nhất được ghi chép đầy đủ, chỉ
-  dùng khoảng 1GB Wikipedia trong 482GB dữ liệu [26][27].
+- **Wikipedia is very good for learning and as a foundation**: clean,
+  structured, clearly licensed. But it is **too small** to produce a
+  general-purpose model. Viwiki has about 1.1 million articles [1] and about
+  275 million tokens (possibly counted in words) [2]. That is roughly **200
+  times** smaller than the Vietnamese portion of FineWeb-2 (50.9 billion) [5]
+  or CulturaX (55.4 billion tokens) [4].
+- **PhoGPT**, the only fully documented Vietnamese model trained from scratch,
+  used only about 1GB of Wikipedia out of 482GB of data [26][27].
 
-Ba phát hiện chi phối kết luận:
+Three findings drive the conclusion:
 
-1. **Thiếu dữ liệu, không phải thiếu kiến trúc.**
-   - Model 125M theo tỷ lệ Chinchilla cần khoảng 2,5 tỷ token. Lặp viwiki 4
-     epoch (gần như không mất gì [19]) mới được khoảng 1,1 tỷ.
-   - Model nhỏ hiện đại còn train *vượt xa* mức đó: SmolLM2-135M train trên 2
-     nghìn tỷ token [15].
-   - Ở nanochat, cải thiện lớn nhất đến từ **đổi bộ dữ liệu** chứ không phải đổi
-     model [22].
-   - Bước đơn giản nhất: thêm **một phần FineWeb-2 tiếng Việt**. Bộ này có giấy
-     phép ODC-By [6] và đã qua language ID, MinHash dedup và bộ lọc theo ngôn
-     ngữ [6].
-2. **Model nhỏ chỉ "thông minh" trong phạm vi hẹp.** TinyStories cho thấy model
-   vài triệu tham số viết mạch lạc khi dữ liệu hẹp và đơn giản. Ở khoảng 125M
-   trên dữ liệu web rộng, model "hiếm khi" mạch lạc [24]. Vì vậy:
-   - Model chỉ train trên Wikipedia sẽ nói giọng bách khoa, trôi chảy nhưng hay
-     sai sự kiện. Đó là mục tiêu hợp lý cho một dự án học tập.
-   - **Đừng đo bằng VMLU**: ngay PhoGPT-7B5-Instruct chỉ được 24,01 ở zero-shot,
-     tức ngang mức đoán ngẫu nhiên [35]. Nên đo bằng **bits-per-byte /
-     perplexity** và các bài cloze như `lambada_vi` trong ViLLM-Eval [36].
-3. **Fine-tune hội thoại khả thi ngay ở 135M.** SmolLM2-135M-Instruct có SFT và
-   DPO [41]. Dữ liệu instruction tiếng Việt có sẵn: vi-alpaca khoảng 50k [37],
-   Aya [38], ViHermes-25K [39]. **Lưu ý:** phần lớn là dữ liệu dịch máy hoặc do
-   GPT/Gemini sinh ra, nên chất lượng và điều khoản cần kiểm tra từng bộ.
+1. **Data is the bottleneck, not architecture.**
+   - A 125M model at the Chinchilla ratio needs about 2.5 billion tokens.
+     Repeating viwiki for 4 epochs (almost no loss [19]) yields only about 1.1
+     billion.
+   - Modern small models are trained *far beyond* that: SmolLM2-135M was
+     trained on 2 trillion tokens [15].
+   - In nanochat, the largest improvement came from **changing the dataset**,
+     not changing the model [22].
+   - The simplest step: add **a portion of Vietnamese FineWeb-2**. This set is
+     licensed ODC-By [6] and has been through language ID, MinHash dedup and
+     language-specific filters [6].
+2. **Small models are only "smart" within a narrow scope.** TinyStories shows
+   that models with a few million parameters write coherently when the data is
+   narrow and simple. At around 125M on broad web data, models are "rarely"
+   coherent [24]. Therefore:
+   - A model trained only on Wikipedia will speak in an encyclopedic voice,
+     fluent but often wrong on facts. That is a reasonable goal for a learning
+     project.
+   - **Do not measure with VMLU**: even PhoGPT-7B5-Instruct scores only 24.01
+     zero-shot, which is at random-guess level [35]. Measure with
+     **bits-per-byte / perplexity** and cloze tasks such as `lambada_vi` in
+     ViLLM-Eval [36].
+3. **Conversational fine-tuning is feasible even at 135M.** SmolLM2-135M-Instruct
+   has SFT and DPO [41]. Vietnamese instruction data is available: vi-alpaca
+   about 50k [37], Aya [38], ViHermes-25K [39]. **Note:** most of it is machine
+   translated or generated by GPT/Gemini, so quality and terms must be checked
+   for each set.
 
-**Lưu ý lớn nhất:** chưa có số đo tốc độ đáng tin cho GPU tiêu dùng hay Mac
-(MPS). Ước tính compute dưới đây là **suy luận**, cần đo thực tế trên máy của
-bạn.
+**Biggest caveat:** there are no reliable speed measurements for consumer GPUs
+or Mac (MPS) yet. The compute estimates below are **inference**, and must be
+measured on your own machine.
 
-## D1 — Dữ liệu
+## D1 — Data
 
-| Nguồn | Quy mô tiếng Việt | Giấy phép | Ghi chú | Độ tin cậy |
+| Source | Vietnamese scale | License | Notes | Confidence |
 |---|---|---|---|---|
-| Wikipedia tiếng Việt | ~1,1 triệu bài [1]; ~275,6 triệu token [2] | CC BY-SA 3.0 + GFDL [11] | Nhiều bài sơ khai do bot tạo: khoảng 5% vào năm 2009 [3]. Con số "58% do bot" không có nguồn gốc. | medium |
-| CulturaX | 55,4 tỷ token, 57,6 triệu tài liệu (0,88%) [4] | "other" (kế thừa mC4/OSCAR); phải xin quyền truy cập | Đã làm sạch và dedup | medium |
-| FineWeb-2 `vie_Latn` | 50,9 tỷ (đơn vị có thể là token), 61 triệu tài liệu, ~320GB [5] | **ODC-By** [6] | Có bản lọc chất lượng cao `epfml/FineWeb2-HQ` [7] | high (giấy phép), medium (quy mô) |
-| HPLT v2 | Không tìm được số riêng cho tiếng Việt [8] | CC0 | 193 ngôn ngữ, ~8 nghìn tỷ token | low |
-| MADLAD-400 | Có bản sao `Symato/madlad-400_vi` [9] | — | Không lấy được quy mô | low |
-| binhvq news-corpus | **Đã gỡ** [10] | Bản quyền thuộc các báo | Thận trọng với bản tải lại | high |
+| Vietnamese Wikipedia | ~1.1 million articles [1]; ~275.6 million tokens [2] | CC BY-SA 3.0 + GFDL [11] | Many stub articles created by bots: about 5% in 2009 [3]. The figure "58% by bots" has no source. | medium |
+| CulturaX | 55.4 billion tokens, 57.6 million documents (0.88%) [4] | "other" (inherited from mC4/OSCAR); access must be requested | Cleaned and deduped | medium |
+| FineWeb-2 `vie_Latn` | 50.9 billion (unit may be tokens), 61 million documents, ~320GB [5] | **ODC-By** [6] | A high-quality filtered version exists: `epfml/FineWeb2-HQ` [7] | high (license), medium (scale) |
+| HPLT v2 | No Vietnamese-specific figure found [8] | CC0 | 193 languages, ~8 trillion tokens | low |
+| MADLAD-400 | A copy exists: `Symato/madlad-400_vi` [9] | — | Scale could not be obtained | low |
+| binhvq news-corpus | **Removed** [10] | Copyright belongs to the newspapers | Be cautious with re-uploaded copies | high |
 
-- **Giấy phép Wikipedia:** CC BY-SA áp dụng cho văn bản. Việc share-alike có áp
-  dụng cho **trọng số model** hay không thì chưa nguồn nào trả lời dứt khoát
-  [12]. Đây là vùng pháp lý còn mở. Nên ghi nguồn và giấy phép trong model card.
-- **Làm sạch** (pipeline FineWeb-2 [6]): language ID bằng GlotLID, MinHash dedup
-  theo từng ngôn ngữ, sửa encoding bằng FTFY, bộ lọc chất lượng theo ngôn ngữ,
-  công cụ datatrove.
-- **Chuẩn hoá Unicode:** dùng **NFC**. NFC **không** sửa được vị trí dấu kiểu cũ
-  và kiểu mới ("hoà" và "hòa"), nên cần thêm một bước chuẩn hoá riêng, ví dụ
-  `text_normalize` của underthesea [13][14].
+- **Wikipedia license:** CC BY-SA applies to the text. Whether share-alike
+  applies to **model weights** has not been settled by any source [12]. This
+  is an open legal area. Credit the source and license in the model card.
+- **Cleaning** (FineWeb-2 pipeline [6]): language ID with GlotLID, per-language
+  MinHash dedup, encoding repair with FTFY, language-specific quality filters,
+  the datatrove tool.
+- **Unicode normalization:** use **NFC**. NFC does **not** fix the old-style vs
+  new-style tone mark placement ("hoà" and "hòa"), so a separate normalization
+  step is needed, for example underthesea's `text_normalize` [13][14].
 
-## D2 — Công thức train model nhỏ
+## D2 — Recipe for training a small model
 
-- **Ngân sách token:**
-  - SmolLM2-135M train trên 2 nghìn tỷ token, khoảng 15.000 token mỗi tham số
-    [15]. SmolLM3-3B dùng khoảng 11,2 nghìn tỷ [16]. Llama 3.2 1B dùng đến 9
-    nghìn tỷ [17].
-  - Lặp dữ liệu đến khoảng 4 epoch gần như tốt bằng dữ liệu mới [19].
-- **Kiến trúc** (MobileLLM, ICML 2024) [18]:
-  - Dưới 1B tham số, **độ sâu quan trọng hơn độ rộng**.
-  - **Gộp chung embedding vào/ra** (weight tying) tiết kiệm 11,8% tham số của
-    model 125M mà chỉ giảm 0,2 điểm.
-  - **GQA** cũng có lợi. Repo đã có RoPE, GQA, SwiGLU và RMSNorm, đúng hướng.
-- **Các công thức tham khảo:**
-  - **llm.c GPT-2 124M** [20]: 10 tỷ token, khoảng 90 phút trên 8×A100, khoảng
-    $20. Một A100 xử lý khoảng 178 nghìn token/giây.
-  - **nanochat** [22]: thay thế nanoGPT (nanoGPT nay đã ngừng phát triển [21]).
-    - Một tham số `--depth` tự đặt chiều rộng, số head, learning rate và weight
-      decay.
-    - Dùng Muon + AdamW; trên Mac (MPS) chạy ở fp32.
-    - Đạt chất lượng GPT-2 với khoảng $48 trên 8×H100.
-  - **modded-nanogpt** [23]: các mẹo đáng thử là optimizer **Muon**,
-    **QK-Norm**, **ReLU²** và value embeddings. Kỷ lục 40 giây trong README chưa
-    được kiểm chứng chéo.
-- **Ước tính compute:**
-  - Số đo có nguồn: card RTX 4070 đạt khoảng 56 nghìn token/giây (một log của
-    cộng đồng, độ tin cậy low) [20]. Trên Mac, MPS nhanh hơn CPU khoảng 2–3 lần
-    [25].
-  - Từ đó **suy ra (chưa đo)**: 2,5 tỷ token cho model 124M mất khoảng 4 giờ
-    trên A100, khoảng 12 giờ trên RTX 4070. Trên Mac M-series thì lâu hơn nhiều.
+- **Token budget:**
+  - SmolLM2-135M was trained on 2 trillion tokens, about 15,000 tokens per
+    parameter [15]. SmolLM3-3B used about 11.2 trillion [16]. Llama 3.2 1B used
+    up to 9 trillion [17].
+  - Repeating data up to about 4 epochs is almost as good as fresh data [19].
+- **Architecture** (MobileLLM, ICML 2024) [18]:
+  - Below 1B parameters, **depth matters more than width**.
+  - **Sharing the input/output embedding** (weight tying) saves 11.8% of the
+    parameters of a 125M model at a cost of only 0.2 points.
+  - **GQA** also helps. The repo already has RoPE, GQA, SwiGLU and RMSNorm,
+    which is the right direction.
+- **Reference recipes:**
+  - **llm.c GPT-2 124M** [20]: 10 billion tokens, about 90 minutes on 8×A100,
+    about $20. One A100 processes about 178 thousand tokens/second.
+  - **nanochat** [22]: replaces nanoGPT (nanoGPT is now no longer developed
+    [21]).
+    - A single `--depth` parameter sets the width, number of heads, learning
+      rate and weight decay automatically.
+    - Uses Muon + AdamW; on Mac (MPS) it runs in fp32.
+    - Reaches GPT-2 quality for about $48 on 8×H100.
+  - **modded-nanogpt** [23]: tricks worth trying are the **Muon** optimizer,
+    **QK-Norm**, **ReLU²** and value embeddings. The 40-second record in the
+    README has not been cross-verified.
+- **Compute estimates:**
+  - Sourced measurement: an RTX 4070 card reaches about 56 thousand
+    tokens/second (a community log, confidence low) [20]. On Mac, MPS is about
+    2–3 times faster than CPU [25].
+  - From this we **infer (not measured)**: 2.5 billion tokens for a 124M model
+    takes about 4 hours on an A100, about 12 hours on an RTX 4070. On a Mac
+    M-series it takes much longer.
 
-## D3 — Đặc thù tiếng Việt
+## D3 — Vietnamese specifics
 
-- **Các LLM tiếng Việt đã có:**
-  - **PhoGPT-4B** là model duy nhất train từ đầu được ghi chép đầy đủ [26][27]:
-    3,7B tham số, 102 tỷ token, 2 epoch trên 482GB, context 8K, vocab 20K
-    (20.480, byte-level BPE).
-  - Các model còn lại là **train tiếp hoặc fine-tune từ model gốc tiếng Anh**:
-    Vistral (từ Mistral-7B, mở rộng vocab) [28], VinaLLaMA (LLaMA-2, thêm 800 tỷ
-    token, trong đó hơn 500 tỷ là dữ liệu tổng hợp) [29], SeaLLM (thêm khoảng
-    16K token vào vocab) [30], URA-LLaMa (Wikipedia 1GB + tin tức 22GB) [31],
-    Arcee-VyLinh (từ Qwen2.5-3B) [32].
-  - Giấy phép trọng số phần lớn là điều khoản riêng hoặc không rõ.
+- **Existing Vietnamese LLMs:**
+  - **PhoGPT-4B** is the only fully documented model trained from scratch
+    [26][27]: 3.7B parameters, 102 billion tokens, 2 epochs over 482GB, 8K
+    context, 20K vocab (20,480, byte-level BPE).
+  - The others are **continued pretraining or fine-tuning of English base
+    models**: Vistral (from Mistral-7B, vocab extended) [28], VinaLLaMA
+    (LLaMA-2, 800 billion additional tokens, of which over 500 billion are
+    synthetic data) [29], SeaLLM (about 16K tokens added to the vocab) [30],
+    URA-LLaMa (1GB Wikipedia + 22GB news) [31], Arcee-VyLinh (from Qwen2.5-3B)
+    [32].
+  - Weight licenses are mostly custom terms or unclear.
 - **Tokenizer:**
-  - Tỷ lệ nén tiếng Việt (thấp hơn là tốt hơn): tokenizer của ChatGPT 4,41,
-    Llama 3,46, SeaLLM 1,48 [30].
-  - Fertility tiếng Việt so với tiếng Anh dao động từ 0,83 đến 1,93 lần. Thành
-    phần của vocab quan trọng ngang kích thước vocab [33].
-  - Tokenizer riêng cho tiếng Việt, như repo đang làm (32k hoặc 8k), là lựa
-    chọn đúng. PhoGPT dùng vocab 20K.
-- **Tách từ** (VnCoreNLP) chỉ cần cho PhoBERT, một model encoder [34]. Không có
-  bằng chứng cần tách từ cho model sinh văn bản dùng BPE.
-- **Đánh giá:**
-  - VMLU có 10.880 câu, 58 môn [35]. Quá khó với model nhỏ.
-  - Nên dùng bits-per-byte (so sánh được giữa các tokenizer) và các bài cloze
-    hoặc đoán từ tiếp theo trong ViLLM-Eval [36].
+  - Vietnamese compression ratio (lower is better): ChatGPT's tokenizer 4.41,
+    Llama 3.46, SeaLLM 1.48 [30].
+  - Vietnamese fertility relative to English ranges from 0.83 to 1.93 times.
+    The composition of the vocab matters as much as its size [33].
+  - A dedicated Vietnamese tokenizer, as the repo does (32k or 8k), is the
+    right choice. PhoGPT uses a 20K vocab.
+- **Word segmentation** (VnCoreNLP) is only needed for PhoBERT, an encoder model
+  [34]. There is no evidence that word segmentation is needed for a generative
+  model using BPE.
+- **Evaluation:**
+  - VMLU has 10,880 questions, 58 subjects [35]. Too hard for small models.
+  - Use bits-per-byte (comparable across tokenizers) and the cloze or
+    next-word-prediction tasks in ViLLM-Eval [36].
 
-## D4 — Hậu huấn luyện và đánh giá
+## D4 — Post-training and evaluation
 
-- **Dữ liệu instruction tiếng Việt:**
-  - `bkai-foundation-models/vi-alpaca`: khoảng 50k [37].
-  - Aya: 204k mẫu do người viết, nhiều ngôn ngữ trong đó có tiếng Việt, giấy
-    phép Apache-2.0. Chưa rõ bao nhiêu mẫu là tiếng Việt [38].
-  - ViHermes-25K: dịch máy, chưa lọc an toàn [39].
-  - Các bộ của 5CD-AI, gồm cả cặp DPO [40].
-  - **Phần lớn là dịch máy hoặc do model sinh ra.**
-- **SFT cho model tí hon:**
-  - SmolLM2-135M-Instruct dùng SFT rồi DPO; IFEval 29,9 [41]. Đây là cận trên
-    thực tế cho mức 135M.
-  - Thiết lập SFT trong bài SmolLM2 là 2 epoch, learning rate 3e-4. Chưa xác
-    nhận đây là thiết lập cho bản 135M.
-- **Loss masking:** che prompt khi tính loss là mặc định trong các thư viện SFT.
-  Nhưng Shi et al. (NeurIPS 2024) thấy *tính loss cả trên prompt* có lợi khi dữ
-  liệu nhỏ và câu trả lời ngắn [42]. **Nên thử cả hai.**
-- **Contamination:** lọc trùng 13-gram (GPT-3) [46] hoặc 8-gram giữa dữ liệu
-  train và bộ đánh giá. Cách này không bắt được câu đã dịch hoặc diễn đạt lại.
-- **Lấy mẫu:**
-  - min-p (ICLR 2025) [43] đang bị phản biện là lợi ích không rõ [44].
-  - Contrastive decoding cần một model "chuyên gia" lớn hơn [45], nên không hợp
-    với dự án chỉ có model nhỏ.
-  - Không tìm được bằng chứng nào cho repetition penalty.
+- **Vietnamese instruction data:**
+  - `bkai-foundation-models/vi-alpaca`: about 50k [37].
+  - Aya: 204k human-written samples, multilingual including Vietnamese,
+    Apache-2.0 license. It is unclear how many samples are Vietnamese [38].
+  - ViHermes-25K: machine translated, not safety-filtered [39].
+  - The 5CD-AI sets, including DPO pairs [40].
+  - **Most are machine translated or model-generated.**
+- **SFT for a tiny model:**
+  - SmolLM2-135M-Instruct uses SFT then DPO; IFEval 29.9 [41]. This is the
+    practical upper bound at the 135M level.
+  - The SFT setup in the SmolLM2 paper is 2 epochs, learning rate 3e-4. It has
+    not been confirmed that this is the setup for the 135M version.
+- **Loss masking:** masking the prompt when computing loss is the default in SFT
+  libraries. But Shi et al. (NeurIPS 2024) found that *computing loss on the
+  prompt too* is beneficial when data is small and responses are short [42].
+  **Try both.**
+- **Contamination:** filter 13-gram overlap (GPT-3) [46] or 8-gram overlap
+  between the training data and the evaluation sets. This does not catch
+  translated or paraphrased sentences.
+- **Sampling:**
+  - min-p (ICLR 2025) [43] is being challenged as having unclear benefit [44].
+  - Contrastive decoding needs a larger "expert" model [45], so it does not fit
+    a project with only a small model.
+  - No evidence was found for repetition penalty.
 
-## Insight xuyên nhánh
+## Cross-branch insights
 
-1. **Bước tiếp theo giá trị nhất là dữ liệu, kế đến là cách đánh giá.** Dữ liệu
-   là nút thắt (D1, D2). Nhưng không có thước đo bits-per-byte cố định (D3) thì
-   không thể biết thêm FineWeb-2 hay đổi tokenizer có giúp gì. Vậy **phải dựng
-   bộ đánh giá trước khi đổi dữ liệu.**
-2. **Tách "model học tập" và "model hữu ích".** Model chỉ train trên viwiki là
-   công cụ tuyệt vời để thí nghiệm diễn giải cơ chế (xem buổi brainstorm). Model
-   trộn thêm FineWeb-2 và có SFT là hướng tới hữu ích. Nên giữ cả hai như hai
-   cấu hình.
-3. **Tokenizer gắn chặt với dữ liệu.** Thêm dữ liệu web thì phải train lại
-   tokenizer trên hỗn hợp mới. Theo quy tắc của repo, tokenizer phải khớp
-   checkpoint, nên mọi checkpoint cũ trở thành không dùng được.
+1. **The most valuable next step is data, followed by evaluation.** Data is the
+   bottleneck (D1, D2). But without a fixed bits-per-byte yardstick (D3) there
+   is no way to know whether adding FineWeb-2 or changing the tokenizer helps
+   at all. So **build the evaluation suite before changing the data.**
+2. **Separate the "learning model" from the "useful model".** A model trained
+   only on viwiki is an excellent tool for mechanistic interpretability
+   experiments (see the brainstorm session). A model mixed with FineWeb-2 and
+   given SFT aims at usefulness. Keep both as two configurations.
+3. **The tokenizer is tightly coupled to the data.** Adding web data means
+   retraining the tokenizer on the new mixture. Under the repo's rule that the
+   tokenizer must match the checkpoint, all old checkpoints become unusable.
 
-## Khuyến nghị (đầu vào cho epic)
+## Recommendations (input for the epic)
 
-| # | Khuyến nghị | Cơ sở | Độ tin cậy |
+| # | Recommendation | Basis | Confidence |
 |---|---|---|---|
-| R1 | Dựng **bộ đánh giá** trước: bits-per-byte trên tập val cố định, cloze `lambada_vi`, kiểm tra trùng n-gram | [36][46] | medium |
-| R2 | **Pipeline dữ liệu v2**: NFC, chuẩn hoá vị trí dấu, MinHash dedup, lọc bài sơ khai | [6][13][14][3] | medium |
-| R3 | **Trộn thêm FineWeb-2 `vie_Latn`** (bắt đầu 1–5 tỷ token, ưu tiên bản HQ); ghi nguồn và giấy phép | [5][6][7] | medium |
-| R4 | **Train lại tokenizer** trên hỗn hợp mới; đo fertility, so sánh vocab 16k/20k/32k | [30][33][27] | medium |
-| R5 | **Nâng cấp công thức train**: weight tying, model sâu và mỏng, tuỳ chọn Muon/QK-Norm; đặt ngân sách token ≥ 20 token mỗi tham số, lặp tối đa 4 epoch | [18][19][22][23] | medium |
-| R6 | **Đo tốc độ** trên máy thật (GPU/MPS) và ghi vào tài liệu | [20][25] | low → cần đo |
-| R7 | **SFT tiếng Việt** với vi-alpaca và Aya; chat template; thử có và không che prompt khi tính loss | [37][38][41][42] | medium |
-| R8 | **Model card và giấy phép**: liệt kê nguồn dữ liệu, CC BY-SA, ODC-By | [11][12][6] | medium |
+| R1 | Build the **evaluation suite** first: bits-per-byte on a fixed val set, `lambada_vi` cloze, n-gram overlap check | [36][46] | medium |
+| R2 | **Data pipeline v2**: NFC, tone mark placement normalization, MinHash dedup, stub article filtering | [6][13][14][3] | medium |
+| R3 | **Mix in FineWeb-2 `vie_Latn`** (start with 1–5 billion tokens, prefer the HQ version); credit the source and license | [5][6][7] | medium |
+| R4 | **Retrain the tokenizer** on the new mixture; measure fertility, compare 16k/20k/32k vocab | [30][33][27] | medium |
+| R5 | **Upgrade the training recipe**: weight tying, deep and thin model, optional Muon/QK-Norm; set the token budget ≥ 20 tokens per parameter, repeat at most 4 epochs | [18][19][22][23] | medium |
+| R6 | **Measure speed** on real hardware (GPU/MPS) and record it in the docs | [20][25] | low → needs measurement |
+| R7 | **Vietnamese SFT** with vi-alpaca and Aya; chat template; try with and without prompt masking in the loss | [37][38][41][42] | medium |
+| R8 | **Model card and license**: list data sources, CC BY-SA, ODC-By | [11][12][6] | medium |
 
-## Câu hỏi còn mở
+## Open questions
 
-- Số token thật của viwiki với tokenizer của repo. Đo trực tiếp bằng
-  `prepare_dataset.py` (file `meta.json` đã có số này).
-- Đơn vị của con số FineWeb-2 (token hay từ?) và quy mô tiếng Việt của
-  HPLT/MADLAD. Cần mở quyền truy cập `huggingface.co`.
-- Share-alike của CC BY-SA có áp dụng cho trọng số model không. Chưa có câu trả
-  lời pháp lý.
-- Tốc độ train thực tế trên GPU tiêu dùng và Mac.
+- The real token count of viwiki with the repo's tokenizer. Measure directly
+  with `prepare_dataset.py` (the `meta.json` file already has this number).
+- The unit of the FineWeb-2 figure (tokens or words?) and the Vietnamese scale
+  of HPLT/MADLAD. Access to `huggingface.co` needs to be opened.
+- Whether the share-alike of CC BY-SA applies to model weights. There is no
+  legal answer yet.
+- Actual training speed on consumer GPUs and Mac.
 
-## Phụ lục nguồn
+## Source appendix
 
-| [n] | Hỗ trợ cho | Nhà xuất bản | Ngày | Truy cập | Độ tin cậy |
+| [n] | Supports | Publisher | Date | Accessed | Confidence |
 |---|---|---|---|---|---|
-| [1] | ~1,1 triệu bài viwiki | [underthesea — UVW dataset](https://undertheseanlp.github.io/underthesea/docs/datasets/uvw) | 2026 | 2026-11-08 | medium |
-| [2] | ~275,6 triệu token viwiki | [wikilangs/vi model card](https://huggingface.co/wikilangs/vi/blob/main/README.md) | 2025 | 2026-11-08 | low |
-| [3] | Bài do bot tạo | [Wikipedia — Vietnamese Wikipedia](https://en.wikipedia.org/wiki/Vietnamese_Wikipedia) | 2026 | 2026-11-08 | medium |
-| [4] | CulturaX tiếng Việt 55,4 tỷ token | [uonlp — CulturaX](https://huggingface.co/datasets/uonlp/CulturaX) | 2023-09 | 2026-11-08 | medium |
-| [5] | FineWeb-2 vie_Latn 50,9 tỷ | [Hugging Face — FineWeb-2](https://huggingface.co/datasets/HuggingFaceFW/fineweb-2) | 2024-12 | 2026-11-08 | medium |
-| [6] | ODC-By, pipeline làm sạch | [GitHub — huggingface/fineweb-2](https://github.com/huggingface/fineweb-2) | 2025 | 2026-11-08 | high |
-| [7] | Bản lọc chất lượng cao | [EPFL — FineWeb2-HQ](https://huggingface.co/datasets/epfml/FineWeb2-HQ) | 2025 | 2026-11-08 | medium |
+| [1] | ~1.1 million viwiki articles | [underthesea — UVW dataset](https://undertheseanlp.github.io/underthesea/docs/datasets/uvw) | 2026 | 2026-11-08 | medium |
+| [2] | ~275.6 million viwiki tokens | [wikilangs/vi model card](https://huggingface.co/wikilangs/vi/blob/main/README.md) | 2025 | 2026-11-08 | low |
+| [3] | Bot-created articles | [Wikipedia — Vietnamese Wikipedia](https://en.wikipedia.org/wiki/Vietnamese_Wikipedia) | 2026 | 2026-11-08 | medium |
+| [4] | CulturaX Vietnamese 55.4 billion tokens | [uonlp — CulturaX](https://huggingface.co/datasets/uonlp/CulturaX) | 2023-09 | 2026-11-08 | medium |
+| [5] | FineWeb-2 vie_Latn 50.9 billion | [Hugging Face — FineWeb-2](https://huggingface.co/datasets/HuggingFaceFW/fineweb-2) | 2024-12 | 2026-11-08 | medium |
+| [6] | ODC-By, cleaning pipeline | [GitHub — huggingface/fineweb-2](https://github.com/huggingface/fineweb-2) | 2025 | 2026-11-08 | high |
+| [7] | High-quality filtered version | [EPFL — FineWeb2-HQ](https://huggingface.co/datasets/epfml/FineWeb2-HQ) | 2025 | 2026-11-08 | medium |
 | [8] | HPLT v2 | [arXiv — HPLT v2](https://arxiv.org/html/2503.10267v3) | 2025-03 | 2026-11-08 | low |
-| [9] | MADLAD-400 tiếng Việt | [Symato — madlad-400_vi](https://huggingface.co/datasets/Symato/madlad-400_vi) | 2024 | 2026-11-08 | low |
-| [10] | binhvq đã gỡ | [GitHub — binhvq/news-corpus](https://github.com/binhvq/news-corpus) | 2025 | 2026-11-08 | high |
-| [11] | Giấy phép Wikipedia | [Wikimedia — wikipedia dataset](https://huggingface.co/datasets/wikimedia/wikipedia) | 2024 | 2026-11-08 | medium |
-| [12] | CC BY-SA và LLM (bài luận) | [Wikipedia — LLMs and copyright](https://www.wikipedia.org/wiki/Wikipedia:Large_language_models_and_copyright) | 2025 | 2026-11-08 | low |
-| [13] | NFC/NFD tiếng Việt | [Unicode mailing list](https://www.unicode.org/mail-arch/unicode-ml/y2002-m01/0600.html) | 2002-01 | 2026-11-08 | medium |
-| [14] | Chuẩn hoá vị trí dấu | [PyPI — viet-text-tools](https://pypi.org/project/viet-text-tools/0.1.4) | 2025 | 2026-11-08 | low |
-| [15] | SmolLM2-135M, 2 nghìn tỷ token | [Hugging Face — SmolLM2-135M](https://huggingface.co/HuggingFaceTB/SmolLM2-135M) | 2024-11 | 2026-11-08 | medium |
-| [16] | SmolLM3, 11,2 nghìn tỷ token | [Hugging Face — SmolLM3 blog](https://huggingface.co/blog/smollm3) | 2025-07 | 2026-11-08 | medium |
-| [17] | Llama 3.2 1B, 9 nghìn tỷ token | [Azure AI — Llama-3.2-1B](https://ai.azure.com/catalog/models/Llama-3.2-1B) | 2024-09 | 2026-11-08 | medium |
-| [18] | Sâu > rộng, weight tying | [ICML 2024 — MobileLLM](https://proceedings.mlr.press/v235/liu24ce.html) | 2024-07 | 2026-11-08 | high |
-| [19] | Lặp ~4 epoch | [NeurIPS 2023 — Muennighoff et al.](https://proceedings.neurips.cc/paper_files/paper/2023/hash/9d89448b63ce1e2e8dc7af72c984c196-Abstract.html) | 2023-12 | 2026-11-08 | high |
+| [9] | MADLAD-400 Vietnamese | [Symato — madlad-400_vi](https://huggingface.co/datasets/Symato/madlad-400_vi) | 2024 | 2026-11-08 | low |
+| [10] | binhvq removed | [GitHub — binhvq/news-corpus](https://github.com/binhvq/news-corpus) | 2025 | 2026-11-08 | high |
+| [11] | Wikipedia license | [Wikimedia — wikipedia dataset](https://huggingface.co/datasets/wikimedia/wikipedia) | 2024 | 2026-11-08 | medium |
+| [12] | CC BY-SA and LLMs (essay) | [Wikipedia — LLMs and copyright](https://www.wikipedia.org/wiki/Wikipedia:Large_language_models_and_copyright) | 2025 | 2026-11-08 | low |
+| [13] | Vietnamese NFC/NFD | [Unicode mailing list](https://www.unicode.org/mail-arch/unicode-ml/y2002-m01/0600.html) | 2002-01 | 2026-11-08 | medium |
+| [14] | Tone mark placement normalization | [PyPI — viet-text-tools](https://pypi.org/project/viet-text-tools/0.1.4) | 2025 | 2026-11-08 | low |
+| [15] | SmolLM2-135M, 2 trillion tokens | [Hugging Face — SmolLM2-135M](https://huggingface.co/HuggingFaceTB/SmolLM2-135M) | 2024-11 | 2026-11-08 | medium |
+| [16] | SmolLM3, 11.2 trillion tokens | [Hugging Face — SmolLM3 blog](https://huggingface.co/blog/smollm3) | 2025-07 | 2026-11-08 | medium |
+| [17] | Llama 3.2 1B, 9 trillion tokens | [Azure AI — Llama-3.2-1B](https://ai.azure.com/catalog/models/Llama-3.2-1B) | 2024-09 | 2026-11-08 | medium |
+| [18] | Deep > wide, weight tying | [ICML 2024 — MobileLLM](https://proceedings.mlr.press/v235/liu24ce.html) | 2024-07 | 2026-11-08 | high |
+| [19] | Repetition ~4 epochs | [NeurIPS 2023 — Muennighoff et al.](https://proceedings.neurips.cc/paper_files/paper/2023/hash/9d89448b63ce1e2e8dc7af72c984c196-Abstract.html) | 2023-12 | 2026-11-08 | high |
 | [20] | llm.c GPT-2 124M, throughput | [GitHub — karpathy/llm.c #481](https://github.com/karpathy/llm.c/discussions/481) | 2024-05 | 2026-11-08 | high |
-| [21] | nanoGPT ngừng phát triển | [GitHub — karpathy/nanoGPT](https://github.com/karpathy/nanoGPT) | 2025 | 2026-11-08 | high |
-| [22] | nanochat, dữ liệu quan trọng nhất | [GitHub — karpathy/nanochat](https://github.com/karpathy/nanochat) | 2026-03 | 2026-11-08 | high |
-| [23] | Mẹo của modded-nanogpt | [GitHub — modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt) | 2026-08 | 2026-11-08 | medium |
+| [21] | nanoGPT no longer developed | [GitHub — karpathy/nanoGPT](https://github.com/karpathy/nanoGPT) | 2025 | 2026-11-08 | high |
+| [22] | nanochat, data matters most | [GitHub — karpathy/nanochat](https://github.com/karpathy/nanochat) | 2026-03 | 2026-11-08 | high |
+| [23] | modded-nanogpt tricks | [GitHub — modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt) | 2026-08 | 2026-11-08 | medium |
 | [24] | TinyStories | [arXiv — Eldan & Li](https://arxiv.org/abs/2305.07759) | 2023-05 | 2026-11-08 | medium |
-| [25] | MPS nhanh hơn CPU ~3 lần | [Simon Willison — nanoGPT on M2](https://til.simonwillison.net/llms/nanogpt-shakespeare-m2) | 2023 | 2026-11-08 | medium |
-| [26] | PhoGPT từ đầu, 102 tỷ token | [GitHub — VinAIResearch/PhoGPT](https://github.com/VinAIResearch/PhoGPT) | 2024 | 2026-11-08 | high |
+| [25] | MPS ~3 times faster than CPU | [Simon Willison — nanoGPT on M2](https://til.simonwillison.net/llms/nanogpt-shakespeare-m2) | 2023 | 2026-11-08 | medium |
+| [26] | PhoGPT from scratch, 102 billion tokens | [GitHub — VinAIResearch/PhoGPT](https://github.com/VinAIResearch/PhoGPT) | 2024 | 2026-11-08 | high |
 | [27] | PhoGPT vocab 20K, wiki ~1GB | [VinAI — PhoGPT tech report](https://research.vinai.io/wp-content/uploads/2023/11/PhoGPT.pdf) | 2023-11 | 2026-11-08 | medium |
-| [28] | Vistral mở rộng vocab | [Hugging Face — Vistral-7B-Chat](https://huggingface.co/Viet-Mistral/Vistral-7B-Chat) | 2024-01 | 2026-11-08 | medium |
-| [29] | VinaLLaMA, 800 tỷ token | [arXiv — VinaLLaMA](https://arxiv.org/abs/2312.11011) | 2023-12 | 2026-11-08 | medium |
-| [30] | SeaLLM, tỷ lệ nén tokenizer | [GitHub — DAMO-NLP-SG/SeaLLMs](https://github.com/DAMO-NLP-SG/SeaLLMs) | 2024 | 2026-11-08 | high |
-| [31] | URA-LLaMa, dữ liệu | [NUS — Vietnamese LLM project](https://www.comp.nus.edu.sg/~nqduc/projects/vietnamese_llm) | 2024 | 2026-11-08 | medium |
-| [32] | Arcee-VyLinh từ Qwen2.5 | [Hugging Face — Arcee-VyLinh](https://huggingface.co/arcee-ai/Arcee-VyLinh) | 2024-11 | 2026-11-08 | medium |
-| [33] | Fertility 0,83–1,93 lần | [NeurIPS 2026 abstract](https://neurips.cc/virtual/2026/164760) | 2026 | 2026-11-08 | low |
-| [34] | Tách từ chỉ cho PhoBERT | [GitHub — VinAIResearch/PhoBERT](https://github.com/VinAIResearch/PhoBERT) | 2020 | 2026-11-08 | high |
-| [35] | VMLU; PhoGPT 24,01 | [GitHub — ZaloAI-Jaist/VMLU](https://github.com/ZaloAI-Jaist/VMLU) | 2023-11 | 2026-11-08 | high |
+| [28] | Vistral vocab extension | [Hugging Face — Vistral-7B-Chat](https://huggingface.co/Viet-Mistral/Vistral-7B-Chat) | 2024-01 | 2026-11-08 | medium |
+| [29] | VinaLLaMA, 800 billion tokens | [arXiv — VinaLLaMA](https://arxiv.org/abs/2312.11011) | 2023-12 | 2026-11-08 | medium |
+| [30] | SeaLLM, tokenizer compression ratio | [GitHub — DAMO-NLP-SG/SeaLLMs](https://github.com/DAMO-NLP-SG/SeaLLMs) | 2024 | 2026-11-08 | high |
+| [31] | URA-LLaMa, data | [NUS — Vietnamese LLM project](https://www.comp.nus.edu.sg/~nqduc/projects/vietnamese_llm) | 2024 | 2026-11-08 | medium |
+| [32] | Arcee-VyLinh from Qwen2.5 | [Hugging Face — Arcee-VyLinh](https://huggingface.co/arcee-ai/Arcee-VyLinh) | 2024-11 | 2026-11-08 | medium |
+| [33] | Fertility 0.83–1.93 times | [NeurIPS 2026 abstract](https://neurips.cc/virtual/2026/164760) | 2026 | 2026-11-08 | low |
+| [34] | Word segmentation only for PhoBERT | [GitHub — VinAIResearch/PhoBERT](https://github.com/VinAIResearch/PhoBERT) | 2020 | 2026-11-08 | high |
+| [35] | VMLU; PhoGPT 24.01 | [GitHub — ZaloAI-Jaist/VMLU](https://github.com/ZaloAI-Jaist/VMLU) | 2023-11 | 2026-11-08 | high |
 | [36] | ViLLM-Eval, lambada_vi | [VLSP 2023 — ViLLM-Eval](https://huggingface.co/datasets/vlsp-2023-vllm/ViLLM-Eval) | 2023 | 2026-11-08 | medium |
 | [37] | vi-alpaca ~50k | [BKAI — vi-alpaca](https://huggingface.co/datasets/bkai-foundation-models/vi-alpaca) | 2023 | 2026-11-08 | medium |
 | [38] | Aya 204k, Apache-2.0 | [Cohere — aya_dataset](https://huggingface.co/datasets/CohereForAI/aya_dataset) | 2024-02 | 2026-11-08 | medium |
-| [39] | ViHermes-25K dịch máy | [ontocord — viet4all](https://huggingface.co/datasets/ontocord/viet4all) | 2024 | 2026-11-08 | low |
-| [40] | Bộ 5CD-AI, DPO | [5CD-AI — DPO collection](https://huggingface.co/collections/5CD-AI/dpo-instruction-datasets-6608026d80f057ee616e8bf5) | 2024 | 2026-11-08 | low |
+| [39] | ViHermes-25K machine translated | [ontocord — viet4all](https://huggingface.co/datasets/ontocord/viet4all) | 2024 | 2026-11-08 | low |
+| [40] | 5CD-AI sets, DPO | [5CD-AI — DPO collection](https://huggingface.co/collections/5CD-AI/dpo-instruction-datasets-6608026d80f057ee616e8bf5) | 2024 | 2026-11-08 | low |
 | [41] | SmolLM2-135M-Instruct SFT+DPO | [Hugging Face — SmolLM2-135M-Instruct](https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct) | 2024-11 | 2026-11-08 | medium |
-| [42] | Tính loss trên prompt | [NeurIPS 2024 — Shi et al.](https://proceedings.neurips.cc/paper_files/paper/2024/hash/7ffb43adf37b3eeaba559098bc084cc6-Abstract.html) | 2024-12 | 2026-11-08 | high |
+| [42] | Loss on the prompt | [NeurIPS 2024 — Shi et al.](https://proceedings.neurips.cc/paper_files/paper/2024/hash/7ffb43adf37b3eeaba559098bc084cc6-Abstract.html) | 2024-12 | 2026-11-08 | high |
 | [43] | min-p | [ICLR 2025 oral](https://iclr.cc/virtual/2025/oral/31888) | 2025-04 | 2026-11-08 | medium |
-| [44] | Phản biện min-p | [NeurIPS 2026 listing](https://neurips.cc/virtual/2026/166291) | 2026 | 2026-11-08 | low |
+| [44] | Critique of min-p | [NeurIPS 2026 listing](https://neurips.cc/virtual/2026/166291) | 2026 | 2026-11-08 | low |
 | [45] | Contrastive decoding | [ACL 2023 — Li et al.](https://aclanthology.org/2023.acl-long.687) | 2023-07 | 2026-11-08 | medium |
-| [46] | Lọc trùng 13-gram | [NeurIPS 2020 — GPT-3 supplemental](https://proceedings.nips.cc/paper_files/paper/2020/file/1457c0d6bfcb4967418bfb8ac142f64a-Supplemental.pdf) | 2020-12 | 2026-11-08 | high |
+| [46] | 13-gram overlap filtering | [NeurIPS 2020 — GPT-3 supplemental](https://proceedings.nips.cc/paper_files/paper/2020/file/1457c0d6bfcb4967418bfb8ac142f64a-Supplemental.pdf) | 2020-12 | 2026-11-08 | high |
 
-## Bản đồ độ cũ
+## Staleness map
 
-Khung thời gian theo pack: landscape liên quan AI 3 tháng · tín hiệu hệ sinh thái 6 tháng · pattern 2 năm.
+Time windows per pack: AI-related landscape 3 months · ecosystem signals 6 months · patterns 2 years.
 
-| Claim | Ngày | Kiểm lại | Đã cũ? |
+| Claim | Date | Recheck | Stale? |
 |---|---|---|---|
-| Vietnamese LLM landscape (PhoGPT etc) | 2024-01 | 2024-04-01 | có |
-| SmolLM2-135M token budget | 2024-11 | 2025-02-01 | có |
-| FineWeb-2 vi size | 2024-12 | 2025-03-01 | có |
-| Data repetition 4 epochs | 2023-12 | 2025-12-01 | có |
-| MobileLLM depth>width | 2024-07 | 2026-07-01 | có |
-| nanochat recipe/leaderboard | 2026-03 | 2026-09-01 | có |
-| modded-nanogpt record | 2026-08 | 2027-02-01 | chưa |
+| Vietnamese LLM landscape (PhoGPT etc) | 2024-01 | 2024-04-01 | yes |
+| SmolLM2-135M token budget | 2024-11 | 2025-02-01 | yes |
+| FineWeb-2 vi size | 2024-12 | 2025-03-01 | yes |
+| Data repetition 4 epochs | 2023-12 | 2025-12-01 | yes |
+| MobileLLM depth>width | 2024-07 | 2026-07-01 | yes |
+| nanochat recipe/leaderboard | 2026-03 | 2026-09-01 | yes |
+| modded-nanogpt record | 2026-08 | 2027-02-01 | no |
 
-Phần lớn claim về landscape đã quá hạn 3 tháng. Trước khi chốt epic về dữ liệu (R3), cần kiểm lại quy mô FineWeb-2 và các bộ dữ liệu tiếng Việt mới, lý tưởng là sau khi mở quyền truy cập `huggingface.co`.
+Most landscape claims are past their 3-month window. Before finalizing the data epic (R3), the FineWeb-2 scale and newer Vietnamese datasets need to be rechecked, ideally after access to `huggingface.co` is opened.
