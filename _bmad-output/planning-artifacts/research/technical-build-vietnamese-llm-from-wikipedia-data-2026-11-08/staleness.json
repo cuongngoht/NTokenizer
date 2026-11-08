@@ -1,0 +1,57 @@
+{
+  "today": "2026-11-08",
+  "claims": [
+    {
+      "claim": "FineWeb-2 vi size",
+      "class": "landscape",
+      "pub_date": "2024-12",
+      "recheck": "2025-03-01",
+      "stale": true
+    },
+    {
+      "claim": "nanochat recipe/leaderboard",
+      "class": "ecosystem",
+      "pub_date": "2026-03",
+      "recheck": "2026-09-01",
+      "stale": true
+    },
+    {
+      "claim": "modded-nanogpt record",
+      "class": "ecosystem",
+      "pub_date": "2026-08",
+      "recheck": "2027-02-01",
+      "stale": false
+    },
+    {
+      "claim": "SmolLM2-135M token budget",
+      "class": "landscape",
+      "pub_date": "2024-11",
+      "recheck": "2025-02-01",
+      "stale": true
+    },
+    {
+      "claim": "Vietnamese LLM landscape (PhoGPT etc)",
+      "class": "landscape",
+      "pub_date": "2024-01",
+      "recheck": "2024-04-01",
+      "stale": true
+    },
+    {
+      "claim": "MobileLLM depth>width",
+      "class": "patterns",
+      "pub_date": "2024-07",
+      "recheck": "2026-07-01",
+      "stale": true
+    },
+    {
+      "claim": "Data repetition 4 epochs",
+      "class": "patterns",
+      "pub_date": "2023-12",
+      "recheck": "2025-12-01",
+      "stale": true
+    }
+  ],
+  "stale_count": 6,
+  "earliest_recheck": "2024-04-01",
+  "no_window_classes": []
+}
