@@ -21,7 +21,8 @@ không `torch.compile`):
 | Tốc độ train, model mặc định (5,3M tham số với tokenizer 8k) | ~6.250 token/s khi đo riêng; ~1,7–2,0 giây/bước (batch 32 × 256 token) trong `train.py`, tính cả đánh giá |
 | Tốc độ train, 12 tầng / 768 chiều / vocab 32k (100M tham số) | ~480 token/s |
 | `prepare_dataset.py` với corpus 200 MB (38,6 triệu token) | RAM đỉnh 603 MB, 10 giây (encode theo luồng) |
-| Chạy thử mức 1 từ đầu đến cuối (corpus giả, train tokenizer riêng trước) | tokenizer trên 200 MB / 937 nghìn dòng trong 6 giây; 200 bước train trong 5,7 phút, val loss 9,02 → 4,31; `sample.py` sinh được văn bản |
+| Chạy thử mức 1 từ đầu đến cuối (corpus giả, train tokenizer riêng trước) | tokenizer trên 200 MB / 937 nghìn dòng trong 6 giây; 40 bước train, val loss 6,82 → 5,51; `sample.py` sinh được văn bản |
+| Chạy dài hơn với tokenizer 8k có sẵn của repo | 200 bước trong 5,7 phút, val loss 9,02 → 4,31 |
 
 Với ~1,8 giây/bước, 5.000 bước mặc định mất khoảng **2,5 giờ** trên CPU như
 vậy. Mac M-series chạy cùng code trên MPS, được ghi nhận nhanh hơn CPU khoảng

@@ -21,7 +21,8 @@ code (fp32, no `torch.compile`):
 | Training speed, default model (5.3M params with the 8k tokenizer) | ~6,250 tokens/s in a micro-benchmark; ~1.7–2.0 s per step (batch 32 × 256 tokens) in `train.py`, including evaluation |
 | Training speed, 12 layers / 768 dim / 32k vocab (100M params) | ~480 tokens/s |
 | `prepare_dataset.py` on a 200 MB corpus (38.6M tokens) | 603 MB peak RAM, 10 s (streaming encoder) |
-| End-to-end level-1 smoke run (synthetic corpus, own tokenizer trained first) | tokenizer on 200 MB / 937K lines in 6 s; 200 training steps in 5.7 min, val loss 9.02 → 4.31; `sample.py` generates text |
+| End-to-end level-1 smoke run (synthetic corpus, own tokenizer trained first) | tokenizer on 200 MB / 937K lines in 6 s; 40 training steps, val loss 6.82 → 5.51; `sample.py` generates text |
+| Longer run with the repo's shipped 8k tokenizer | 200 steps in 5.7 min, val loss 9.02 → 4.31 |
 
 At ~1.8 s per step, the default 5,000 steps take about **2.5 hours** on such a
 CPU. Apple M-series machines run the same code on MPS, which is reported to be
