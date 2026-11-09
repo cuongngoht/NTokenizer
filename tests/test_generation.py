@@ -84,3 +84,23 @@ def test_repetition_penalty_noop_does_not_mutate_input():
 
     assert logits[0, 1].item() == 2.0   # original tensor left untouched
     assert penalized[0, 1].item() == 1.0
+
+
+def test_load_model_infers_vocab_size_from_checkpoint(tmp_path):
+    """A checkpoint trained on a non-default vocab must load without meta.json."""
+    from dataclasses import asdict
+
+    import torch
+
+    from ntokenizer.cli.sample import load_model
+    from ntokenizer.config import GPTConfig, TrainConfig
+    from ntokenizer.model import GPT
+
+    model = GPT(GPTConfig(vocab_size=123, block_size=16, n_layer=1, n_head=2,
+                          n_kv_head=1, n_embd=16, dropout=0.0))
+    cfg = TrainConfig(block_size=16, n_layer=1, n_head=2, n_kv_head=1, n_embd=16)
+    path = tmp_path / "ckpt.pt"
+    torch.save({"model": model.state_dict(), "config": asdict(cfg)}, path)
+
+    loaded, _ = load_model(path, torch.device("cpu"))
+    assert loaded.config.vocab_size == 123

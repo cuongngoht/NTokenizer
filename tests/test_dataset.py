@@ -72,3 +72,23 @@ def test_get_batch_shapes_and_offset():
     assert y.shape == (batch_size, block_size)
     # targets are the inputs shifted by exactly one position
     assert torch.equal(y[:, :-1], x[:, 1:])
+
+
+def test_streaming_encode_matches_in_memory_path(tmp_path, tiny_sentencepiece_model):
+    import sentencepiece as spm
+    from ntokenizer.dataset import encode_corpus, encode_corpus_to_bins
+
+    from conftest import TINY_CORPUS_LINES
+
+    sp = spm.SentencePieceProcessor(model_file=tiny_sentencepiece_model)
+    corpus = tmp_path / "corpus.txt"
+    corpus.write_text("\n\n".join(TINY_CORPUS_LINES) + "\n", encoding="utf-8")  # blank lines skipped
+
+    old_dir, new_dir = tmp_path / "old", tmp_path / "new"
+    old = save_bins(encode_corpus(corpus, sp, sp.eos_id()), old_dir, 0.9)
+    new = encode_corpus_to_bins(corpus, sp, sp.eos_id(), new_dir, 0.9, batch_lines=3)
+
+    assert new == old
+    for name in ("train.bin", "val.bin"):
+        assert (new_dir / name).read_bytes() == (old_dir / name).read_bytes()
+    assert not (new_dir / "all_tokens.tmp.bin").exists()

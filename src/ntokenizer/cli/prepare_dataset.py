@@ -15,8 +15,7 @@ from pathlib import Path
 
 from ntokenizer.dataset import (
     TRAIN_SPLIT,
-    encode_corpus,
-    save_bins,
+    encode_corpus_to_bins,
     save_meta,
     verify_dataset,
 )
@@ -79,19 +78,12 @@ def main() -> None:
     print()
 
     # ------------------------------------------------------------------
-    # 2. Encode the full corpus
+    # 2–3. Encode the corpus (streamed, constant RAM) and save the splits
     # ------------------------------------------------------------------
-    print("Step 2 — Encode corpus")
+    print("Step 2 — Encode corpus and save train.bin / val.bin")
     t_encode = time.monotonic()
-    all_ids = encode_corpus(CORPUS, sp, eos_id)
+    n_train, n_val = encode_corpus_to_bins(CORPUS, sp, eos_id, OUTPUT_DIR, TRAIN_SPLIT)
     print(f"  Encoding wall time: {time.monotonic() - t_encode:.1f}s")
-    print()
-
-    # ------------------------------------------------------------------
-    # 3. Split and save binary files
-    # ------------------------------------------------------------------
-    print("Step 3 — Save train.bin / val.bin")
-    n_train, n_val = save_bins(all_ids, OUTPUT_DIR, TRAIN_SPLIT)
     print(f"  train tokens  : {n_train:,}")
     print(f"  val tokens    : {n_val:,}")
     print()

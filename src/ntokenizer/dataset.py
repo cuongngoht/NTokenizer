@@ -83,6 +83,78 @@ def encode_corpus(corpus_path: Path, sp: spm.SentencePieceProcessor, eos_id: int
     return all_ids
 
 
+def encode_corpus_to_bins(
+    corpus_path: Path,
+    sp: spm.SentencePieceProcessor,
+    eos_id: int,
+    out_dir: Path,
+    train_split: float = TRAIN_SPLIT,
+    batch_lines: int = 10_000,
+) -> tuple[int, int]:
+    """
+    Streaming version of encode_corpus + save_bins with the same output.
+
+    Lines are encoded in batches and appended to a temporary uint16 file, so
+    RAM stays roughly constant (one batch) instead of ~36 bytes per token for
+    a Python list. The temporary file is then split into train.bin / val.bin
+    (last `1 - train_split` of tokens = validation) and removed. Needs about
+    twice the final .bin size of free disk while running.
+
+    Returns (n_train, n_val) token counts.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tmp_path = out_dir / "all_tokens.tmp.bin"
+    n_tokens = 0
+    n_lines = 0
+    t0 = time.monotonic()
+
+    def flush(batch: list[str], out) -> int:
+        ids_per_line = sp.encode(batch, out_type=int)
+        flat: list[int] = []
+        for ids in ids_per_line:
+            flat.extend(ids)
+            if eos_id >= 0:
+                flat.append(eos_id)
+        np.asarray(flat, dtype=np.uint16).tofile(out)
+        return len(flat)
+
+    print("  Encoding corpus (streaming) …")
+    with open(corpus_path, encoding="utf-8") as fh, open(tmp_path, "wb") as out:
+        batch: list[str] = []
+        for raw_line in fh:
+            line = raw_line.strip()
+            if not line:
+                continue
+            batch.append(line)
+            if len(batch) >= batch_lines:
+                n_tokens += flush(batch, out)
+                n_lines += len(batch)
+                batch = []
+                if n_lines % (batch_lines * 10) == 0:
+                    print(f"    {n_lines:,} lines  |  {n_tokens:,} tokens  |  "
+                          f"{time.monotonic() - t0:.0f}s", flush=True)
+        if batch:
+            n_tokens += flush(batch, out)
+            n_lines += len(batch)
+
+    print(f"  Encoding complete in {time.monotonic() - t0:.1f}s")
+    print(f"  Lines processed : {n_lines:,}")
+    print(f"  Total tokens    : {n_tokens:,}")
+
+    split_idx = int(n_tokens * train_split)
+    chunk = 50_000_000  # tokens copied per step (~100 MB)
+    data = np.memmap(tmp_path, dtype=np.uint16, mode="r") if n_tokens else np.zeros(0, np.uint16)
+    for name, start, end in (("train.bin", 0, split_idx), ("val.bin", split_idx, n_tokens)):
+        with open(out_dir / name, "wb") as out:
+            for i in range(start, end, chunk):
+                np.asarray(data[i:min(i + chunk, end)]).tofile(out)
+        print(f"  Saved {out_dir / name}  ({(out_dir / name).stat().st_size / 1024**2:.1f} MB)")
+    del data
+    tmp_path.unlink()
+
+    return split_idx, n_tokens - split_idx
+
+
 def save_bins(all_ids: list, out_dir: Path, train_split: float = TRAIN_SPLIT) -> tuple[int, int]:
     """
     Convert token ID list to uint16, split into train/val, and write .bin files.

@@ -12,7 +12,6 @@ Usage:
 """
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -22,7 +21,7 @@ import torch
 from ntokenizer.config import GPTConfig
 from ntokenizer.device import auto_device
 from ntokenizer.model import GPT
-from ntokenizer.paths import DEFAULT_CHECKPOINT, DEFAULT_TOKENIZER_MODEL, PROCESSED_DIR
+from ntokenizer.paths import DEFAULT_CHECKPOINT, DEFAULT_TOKENIZER_MODEL
 from ntokenizer.tokenizer import encode_prompt
 
 
@@ -43,12 +42,11 @@ def load_model(ckpt_path: Path, device: torch.device) -> tuple[GPT, dict]:
         rope_theta  = cfg_dict.get("rope_theta", 10000.0),
     )
 
-    # GPTConfig doesn't store vocab_size in TrainConfig — read from meta if missing
+    # TrainConfig doesn't store vocab_size, so take it from the checkpoint's
+    # own embedding matrix. This is exact for any checkpoint, regardless of
+    # which --data_dir it was trained on.
     if "vocab_size" not in cfg_dict:
-        meta_path = PROCESSED_DIR / "meta.json"
-        if meta_path.exists():
-            with open(meta_path) as fh:
-                model_cfg.vocab_size = json.load(fh)["vocab_size"]
+        model_cfg.vocab_size = ckpt["model"]["transformer.wte.weight"].shape[0]
 
     model = GPT(model_cfg)
     model.load_state_dict(ckpt["model"])

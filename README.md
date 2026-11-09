@@ -103,6 +103,8 @@ NTokenizer/
 | Disk | ~5 GB free (raw dump + extracted + corpus + binaries) |
 | Hardware | MacBook M-series (MPS), any CUDA GPU, or CPU (slow) |
 
+See [`docs/HARDWARE.md`](docs/HARDWARE.md) for measured training speeds and the three hardware levels (laptop → GPU).
+
 No GPU is strictly required.  On an Apple M-series chip training runs on the
 Metal Performance Shaders (MPS) backend.  On CPU a 5 000-step run takes several
 hours; on MPS or a mid-range GPU it takes 30–60 minutes.
