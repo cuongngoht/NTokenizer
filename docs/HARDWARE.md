@@ -21,7 +21,7 @@ code (fp32, no `torch.compile`):
 | Training speed, default model (5.3M params with the 8k tokenizer) | ~6,250 tokens/s in a micro-benchmark; ~1.7–2.0 s per step (batch 32 × 256 tokens) in `train.py`, including evaluation |
 | Training speed, 12 layers / 768 dim / 32k vocab (100M params) | ~480 tokens/s |
 | `prepare_dataset.py` on a 200 MB corpus (38.6M tokens) | 603 MB peak RAM, 10 s (streaming encoder) |
-| End-to-end level-1 smoke run | 200 steps in 5.7 min; val loss 9.02 → 4.31; `sample.py` generates text |
+| End-to-end level-1 smoke run (synthetic corpus, own tokenizer trained first) | tokenizer on 200 MB / 937K lines in 6 s; 200 training steps in 5.7 min, val loss 9.02 → 4.31; `sample.py` generates text |
 
 At ~1.8 s per step, the default 5,000 steps take about **2.5 hours** on such a
 CPU. Apple M-series machines run the same code on MPS, which is reported to be
@@ -43,20 +43,25 @@ wikiextractor data/raw/viwiki-latest-pages-articles.xml.bz2 \
               --output data/interim/extracted/ --json --quiet
 python scripts/build_corpus.py
 
-# 2. Tokenizer: 8k vocab keeps the model small and fast for level 1
-python scripts/train_tokenizer_spm.py --vocab_size 8000
+# 2. Train the tokenizer ON YOUR TEXT first: it must learn from the corpus the
+#    model will train on, and every later step must use this same tokenizer.
+#    8k vocab keeps the model small and fast for level 1. --name avoids
+#    overwriting the git-tracked viwiki_bpe_8k.model shipped with the repo.
+python scripts/train_tokenizer_spm.py --vocab_size 8000 --name level1_bpe
 #    On an 8 GB machine, cap the sentences SentencePiece holds in RAM:
-#    python scripts/train_tokenizer_spm.py --vocab_size 8000 --max_sentences 3000000
+#    ... --max_sentences 3000000
+#    Check it: python scripts/count_tokens.py "Hà Nội là thủ đô của Việt Nam." \
+#        --model artifacts/tokenizer/level1_bpe_8k.model --show-pieces
 
 # 3. Encode (streaming, < 1 GB RAM)
-python scripts/prepare_dataset.py --model artifacts/tokenizer/viwiki_bpe_8k.model
+python scripts/prepare_dataset.py --model artifacts/tokenizer/level1_bpe_8k.model
 
 # 4. Train the default model (auto-detects CUDA, MPS or CPU)
 python scripts/train.py --out_dir artifacts/checkpoints/level1
 
 # 5. Generate text
 python scripts/sample.py --ckpt artifacts/checkpoints/level1/ckpt.pt \
-    --tokenizer artifacts/tokenizer/viwiki_bpe_8k.model --prompt "Hà Nội là"
+    --tokenizer artifacts/tokenizer/level1_bpe_8k.model --prompt "Hà Nội là"
 ```
 
 Tips for level 1:

@@ -180,6 +180,14 @@ def save_bins(all_ids: list, out_dir: Path, train_split: float = TRAIN_SPLIT) ->
     return len(train_arr), len(val_arr)
 
 
+def _portable_path(path: Path, root: Path) -> str:
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(root.resolve()))
+    except ValueError:
+        return str(resolved)
+
+
 def save_meta(
     out_dir: Path,
     vocab_size: int,
@@ -198,8 +206,9 @@ def save_meta(
         "total_tokens": n_train + n_val,
         "train_tokens": n_train,
         "val_tokens": n_val,
-        # Store a relative path so the project stays portable
-        "tokenizer": str(model_path.resolve().relative_to(root.resolve())),
+        # Relative to the repo when possible so the project stays portable;
+        # absolute for a tokenizer stored elsewhere.
+        "tokenizer": _portable_path(model_path, root),
     }
 
     meta_path = out_dir / "meta.json"

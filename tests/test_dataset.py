@@ -92,3 +92,21 @@ def test_streaming_encode_matches_in_memory_path(tmp_path, tiny_sentencepiece_mo
     for name in ("train.bin", "val.bin"):
         assert (new_dir / name).read_bytes() == (old_dir / name).read_bytes()
     assert not (new_dir / "all_tokens.tmp.bin").exists()
+
+
+def test_save_meta_accepts_tokenizer_outside_repo(tmp_path):
+    import json
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    inside = root / "artifacts" / "tok.model"
+    inside.parent.mkdir()
+    inside.touch()
+    outside = tmp_path / "elsewhere" / "tok.model"
+    outside.parent.mkdir()
+    outside.touch()
+
+    save_meta(tmp_path, 8000, 9, 1, inside, root=root)
+    assert json.loads((tmp_path / "meta.json").read_text())["tokenizer"] == "artifacts/tok.model"
+    save_meta(tmp_path, 8000, 9, 1, outside, root=root)
+    assert json.loads((tmp_path / "meta.json").read_text())["tokenizer"] == str(outside.resolve())
